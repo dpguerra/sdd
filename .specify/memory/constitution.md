@@ -1,75 +1,85 @@
 <!--
 Sync Impact Report
-Version change: 3.5.0 → 4.0.0
-Modified principles: None.
-Added sections: None.
-Modified sections: Qualidade e Convenções de Contribuição (test runner e convenção linguística).
+Version change: 4.0.0 → 5.0.0
+Modified principles: I–XI, XIII–XV, XIX.
+Added principles: XXIV–XXXIV.
+Added sections: Documentação Operacional Obrigatória.
+Modified sections: Stack e Arquitetura; Qualidade e Convenções de Contribuição; Governance.
 Removed sections: None.
 Follow-up TODOs: Confirm the original ratification date.
 -->
 
-# Constituição do MCP para OpenClaw
+# Constituição de Engenharia de MCPs para OpenClaw
 
 ## Core Principles
 
 ### I. Regras de Negócio Testáveis
-Toda regra de negócio MUST possuir pelo menos um teste unitário Jest que verifique seu
+Toda regra de negócio MUST possuir pelo menos um teste unitário que verifique seu
 comportamento esperado e casos-limite relevantes. Alterações em regras de negócio MUST
 atualizar ou acrescentar os testes correspondentes.
 
-### II. Integração de Todas as Tools
-Cada tool MCP MUST possuir pelo menos um teste de integração que valide sua entrada,
-saída e comportamento observável através da interface MCP. Os testes MUST cobrir os
-contratos relevantes com dependências externas ou adaptadores usados pela tool.
+### II. Integração de Todas as Capabilities
+Cada Tool MCP MUST possuir pelo menos um teste de integração que valide sua entrada,
+saída e comportamento observável por meio da interface MCP. Os testes MUST cobrir os
+contratos relevantes com dependências externas, providers, repositórios, persistência e
+adaptadores usados pela Tool. Resources e Prompts externos MUST possuir testes
+equivalentes de descoberta, exposição e consumo.
 
 ### III. Intelligence Budget
-Cada tool MUST retornar somente as informações necessárias para atender à solicitação,
-com saída concisa, estruturada e sem duplicação desnecessária. Quando aplicável, MUST
-oferecer filtros, limites ou paginação para evitar respostas excessivas e preservar o
-orçamento de contexto e tokens do OpenClaw.
+Cada capability MUST retornar somente as informações necessárias para atender à
+solicitação, com saída concisa, estruturada e sem duplicação desnecessária. Quando
+aplicável, MUST oferecer filtros, limites ou paginação para evitar respostas excessivas e
+preservar o orçamento de contexto, decisões e tokens do agente consumidor.
 
 ### IV. Cache Local Não Autoritativo
-Informações recuperadas via API e armazenadas no cache local MUST ser tratadas como
-cache, nunca como fonte autoritativa. A lógica de negócio MUST acessar o cache por
-abstrações de infraestrutura, sem dependência direta de sua implementação. O uso do
-cache MUST preservar a possibilidade de obter dados atualizados da API conforme as
-regras de negócio e a validade dos dados.
+Informações recuperadas de uma fonte externa e armazenadas em cache local MUST ser
+tratadas como cache, nunca como fonte autoritativa. A lógica de negócio MUST acessar o
+cache por abstrações de infraestrutura, sem dependência direta de sua implementação. O
+uso do cache MUST preservar a possibilidade de obter dados atualizados da fonte conforme
+as regras de negócio, validade, proveniência e freshness dos dados.
 
-### V. Contratos MCP Orientados ao OpenClaw
-As tools e seus contratos MUST ser projetados para uso pelo OpenClaw, com nomes,
-descrições, parâmetros e resultados claros e previsíveis. Mudanças incompatíveis nos
-contratos MUST ser explicitadas e acompanhadas dos ajustes de integração necessários.
+### V. Contratos MCP Orientados ao Consumidor
+Tools, Resources, Prompts e seus contratos MUST ser projetados para uso previsível por
+OpenClaw e demais clientes MCP compatíveis, com nomes, descrições, parâmetros,
+resultados e erros claros. Mudanças incompatíveis MUST ser explicitadas, versionadas e
+acompanhadas dos ajustes de integração necessários.
 
 ### VI. Tool Design First
-Toda tool MCP MUST realizar uma única responsabilidade de negócio claramente
+Toda Tool MCP MUST realizar uma única responsabilidade de negócio claramente
 identificável. Tools genéricas ou multifuncionais SHOULD ser divididas em operações
-menores e previsíveis para maximizar a capacidade de planejamento do OpenClaw.
+menores, previsíveis e composáveis para maximizar a capacidade de planejamento do
+agente consumidor.
 
 ### VII. Determinismo de Resposta
-Toda tool MUST retornar estrutura de dados consistente para sucesso, ausência de
-resultado e erro.
+Toda capability MUST produzir estrutura consistente e validável para sucesso, ausência de
+resultado e erro. Variações dependentes de transporte MUST NOT alterar a semântica
+funcional do contrato.
 
 ### VIII. MCP Resource First
-Informações predominantemente consultivas SHOULD ser expostas como MCP Resources
-sempre que possível. Tools MUST ser reservadas para operações parametrizadas,
-cálculos ou ações.
+Informações predominantemente consultivas SHOULD ser expostas como MCP Resources sempre
+que possível. Tools MUST ser reservadas para operações parametrizadas, cálculos,
+transições de estado ou ações. Prompts MUST ser reservados para estratégias reutilizáveis
+que não possam ser expressas como código determinístico.
 
 ### IX. Observabilidade sem Vazamento de Dados
 Logs MUST registrar metadados operacionais, identificadores de correlação, duração,
-resultado, código de erro, provider e versão do contrato. Payloads completos e parâmetros
-sensíveis MUST NOT ser registrados por padrão. A observabilidade MUST utilizar allowlist
-de campos seguros, redaction centralizada e correlação por `requestId`, `runId` e
-`checkpointId`.
+resultado, código de erro, provider, transporte e versão do contrato. Payloads completos e
+parâmetros sensíveis MUST NOT ser registrados por padrão. A observabilidade MUST utilizar
+allowlist de campos seguros, redaction centralizada e correlação por `requestId`, `runId`,
+`sessionId` e `checkpointId`, quando aplicáveis.
 
 ### X. Segurança e Limitação de Escopo
-Toda tool MUST expor apenas os dados necessários para a execução da tarefa solicitada.
-Dados internos, segredos, credenciais e informações sensíveis MUST NOT ser retornados
-ao modelo.
+Toda capability MUST expor apenas os dados necessários para a tarefa solicitada. Dados
+internos, segredos, credenciais e informações sensíveis MUST NOT ser retornados ao modelo
+ou registrados indevidamente. O fato de uma fonte ser pública MUST NOT justificar acesso
+arbitrário a URLs, ausência de controles contra abuso ou habilitação implícita de
+operações mutáveis.
 
 ### XI. Versionamento de Contratos MCP
-Alterações incompatíveis em parâmetros, nomes ou formatos de retorno MUST resultar em
-incremento de versão do contrato MCP e coexistência temporária da versão anterior
-quando tecnicamente viável.
+Alterações incompatíveis em parâmetros, nomes, schemas, formatos de retorno, códigos de
+erro ou semântica MUST resultar em incremento de versão do contrato MCP e coexistência
+temporária da versão anterior quando tecnicamente viável. Os transportes oficiais MUST
+expor a mesma versão de contrato para a mesma release.
 
 ### XII. Política Mensurável de Paginação
 Toda operação potencialmente não limitada MUST implementar paginação por cursor ou limite
@@ -80,21 +90,23 @@ o cliente solicitar valor superior. Respostas truncadas MUST indicar `hasMore` e
 durante a leitura.
 
 ### XIII. Princípio de Idempotência
-Tools de leitura MUST ser totalmente idempotentes. Tools de escrita SHOULD ser
-idempotentes sempre que possível.
+Tools de leitura MUST ser idempotentes. Tools mutáveis SHOULD ser idempotentes sempre
+que possível e MUST declarar chave de idempotência ou estratégia equivalente quando
+repetição puder causar efeitos indevidos.
 
 ### XIV. Testes de Consumo pelo Agente
-Toda tool MUST possuir testes que validem sua descoberta e utilização por um cliente
-MCP compatível.
+Toda capability externa MUST possuir testes que validem sua descoberta e utilização por
+um cliente MCP compatível. Os testes MUST utilizar os contratos publicados e MUST NOT
+depender de conhecimento oculto sobre a implementação.
 
 ### XV. Evidência por Gate
 Uma implementação MUST NOT ser considerada concluída apenas por compilar ou passar em
 testes unitários. A homologação MUST registrar separadamente os estados de Design, Code,
-Contract, Wiring, Typecheck, Build, Unit Tests, Integration Tests, Regression, Runtime e
-Operational. A aprovação de um gate posterior MUST NOT se basear exclusivamente em
-evidência de um gate anterior. Uma capability MCP MUST ser considerada homologada
-somente após chamada real ao processo runtime usando os argumentos literais previstos no
-contrato e validação do resultado observável.
+Contract, Wiring, Typecheck, Build, Unit Tests, Integration Tests, Regression, Runtime
+stdio, Runtime Streamable HTTP, Parity e Operational. A aprovação de um gate posterior
+MUST NOT se basear exclusivamente em evidência de um gate anterior. Uma capability MCP
+MUST ser considerada homologada somente após chamada real ao artefato empacotado, com
+argumentos literais previstos no contrato e validação do resultado observável.
 
 ### XVI. Contratos Autossuficientes e Validados na Fonte
 Toda Tool, Resource e Prompt MCP MUST declarar schemas explícitos e versionáveis para
@@ -130,20 +142,21 @@ argumentos ou usar fonte alternativa sem previsão no contrato. Divergências co
 `AUTHORIZATION_REQUIRED` e `AGENT_CONTRACT_GAP` MUST interromper o gate correspondente.
 
 ### XIX. Fronteiras de Responsabilidade
-Cada capacidade MUST ser implementada na camada de menor variabilidade capaz de executá-la
-corretamente:
+Cada capability MUST ser implementada na camada de menor variabilidade capaz de
+executá-la corretamente:
 
-1. Parsing, validação, cálculo, canonicalização, cache, fingerprint, roteamento, transição
-   de estado e seleção de próximo trabalho MUST pertencer à MCP Tool.
-2. Contexto estável, contratos, catálogos, documentação e estado corrente MUST ser
-   expostos como MCP Resources.
-3. Estratégia cognitiva pequena, estável e reutilizável MUST ser expressa como MCP Prompt.
-4. Interpretação semântica isolada MUST ocorrer no processamento interno da Tool, com
-   saída estruturada e validada.
-5. Decisão dependente do contexto global MUST pertencer ao agente consumidor.
-6. Ambiguidade residual ou consequência relevante MUST ser encaminhada à decisão humana.
+- parsing, validação, cálculo, canonicalização, cache, fingerprint, roteamento, transição
+  de estado e seleção de próximo trabalho MUST pertencer ao núcleo MCP;
+- contexto estável, contratos, catálogos, documentação e estado corrente MUST ser
+  expostos como MCP Resources;
+- estratégia cognitiva pequena, estável e reutilizável MUST ser expressa como MCP Prompt;
+- interpretação semântica isolada MUST ocorrer no processamento interno do núcleo, com
+  saída estruturada e validada;
+- decisão dependente do contexto global MUST pertencer ao agente consumidor;
+- ambiguidade residual ou consequência relevante MUST ser encaminhada à decisão humana.
 
-Trabalho determinístico MUST NOT ser transferido ao agente consumidor.
+Trabalho determinístico MUST NOT ser transferido ao agente consumidor ou aos adaptadores
+de transporte.
 
 ### XX. Capability Design First
 Cada capability MUST ser classificada como Tool, Resource ou Prompt antes da
@@ -179,35 +192,277 @@ MUST ser submetidas a análise de vulnerabilidades e licenças. Imagens de cont�
 utilizar versões ou digests explícitos e SHOULD executar como usuário não privilegiado.
 O artefato homologado MUST ser identificável por versão e commit.
 
+### XXIV. Estratégia Dual de Transportes Oficiais
+O produto MCP MUST oferecer simultaneamente dois transportes oficiais:
+
+- stdio, destinado ao desenvolvimento local, depuração, testes automatizados, testes de
+  contrato e integração com clientes que iniciam o servidor como subprocesso;
+- Streamable HTTP, destinado à homologação e produção, nas quais o MCP é executado como
+  serviço independente e acessado por endpoint HTTP.
+
+Os dois transportes MUST pertencer à mesma base de código, ser distribuídos a partir do
+mesmo commit, versão e artefato e expor capabilities funcionalmente equivalentes. stdio
+MUST NOT ser utilizado como mecanismo de publicação em homologação ou produção.
+Streamable HTTP MUST ser exercitado e homologado antes da promoção para produção.
+
+### XXV. Núcleo MCP Único e Independente de Transporte
+Tools, Resources, Prompts, schemas, providers, regras de negócio, persistência e políticas
+de validação MUST pertencer a um núcleo independente de transporte. Os adaptadores stdio
+e Streamable HTTP MUST ser finos e responsáveis somente por inicialização, conexão, ciclo
+de vida, controle de sessão, cancelamento e entrega das mensagens MCP.
+
+É proibido:
+
+- duplicar implementação de Tools, Resources ou Prompts por transporte;
+- introduzir regras de negócio nos adaptadores stdio ou HTTP;
+- manter contratos diferentes para a mesma capability;
+- aplicar uma correção funcional somente a um transporte;
+- acoplar providers ou persistência ao ciclo de vida de um transporte específico;
+- criar divergência semântica de validação, erro ou efeito persistente entre transportes.
+
+### XXVI. EntryPoints Explícitos e Independentes
+O projeto MUST disponibilizar entrypoints independentes para stdio e Streamable HTTP. A
+seleção do transporte MUST ocorrer por comando explícito, entrypoint dedicado ou
+configuração validada, sem autodetecção ambígua.
+
+São exemplos conformes:
+
+- `npm run start:stdio`;
+- `npm run start:http`;
+- `node dist/stdio.js`;
+- `node dist/http.js`.
+
+O mesmo artefato MAY conter os dois entrypoints, mas cada processo MUST iniciar apenas o
+transporte explicitamente selecionado. Um processo MUST NOT iniciar simultaneamente
+stdio e Streamable HTTP por efeito colateral ou autodetecção.
+
+### XXVII. Isolamento de Ciclo de Vida, Processo e Sessão
+Embora os dois transportes sejam suportados pelo mesmo produto, eles MUST NOT
+compartilhar a mesma instância ativa de McpServer. Cada processo, conexão ou sessão MUST
+criar sua própria instância MCP conforme o modelo exigido pelo SDK adotado.
+
+O encerramento de stdin MUST NOT afetar uma instância HTTP. Falhas, sessões,
+cancelamentos, notificações ou buffers HTTP MUST NOT interferir na execução stdio.
+Componentes stateless, pools, caches controlados e repositórios persistentes MAY ser
+compartilhados somente quando forem seguros para concorrência e não carregarem contexto
+de sessão ou transporte.
+
+### XXVIII. Paridade Funcional entre Transportes
+Toda Tool, Resource ou Prompt destinada a uso externo MUST estar disponível em stdio e
+Streamable HTTP, salvo exceção explicitamente documentada, justificada e aprovada por
+decisão arquitetural.
+
+A pipeline MUST possuir gate automatizado de paridade que valide, no mínimo:
+
+- nomes das capabilities expostas;
+- schemas de entrada;
+- schemas de saída;
+- códigos e envelopes de erro;
+- validações;
+- efeitos persistentes;
+- comportamento de cancelamento;
+- versão do protocolo e capabilities declaradas;
+- resultados de um conjunto determinístico de chamadas.
+
+Compilação bem-sucedida MUST NOT ser aceita como prova de paridade, wiring ou exposição
+efetiva.
+
+### XXIX. Estratégia de Transporte por Ambiente
+A estratégia padrão MUST ser:
+
+- desenvolvimento: stdio;
+- testes locais e testes de contrato: stdio, complementados por testes Streamable HTTP;
+- homologação: Streamable HTTP;
+- produção: Streamable HTTP.
+
+A aprovação de testes exclusivamente por stdio MUST NOT homologar uma release destinada
+a HTTP. O artefato MUST ser exercitado por Streamable HTTP em ambiente equivalente à
+produção antes da promoção.
+
+### XXX. Requisitos Mínimos do Streamable HTTP
+O transporte Streamable HTTP MUST implementar, mesmo quando autenticação estiver
+temporariamente fora do escopo:
+
+- endpoint MCP explícito, preferencialmente `/mcp`;
+- validação dos métodos HTTP permitidos e do Content-Type;
+- validação estrita de Origin por allowlist;
+- limite configurável de tamanho de requisição;
+- timeout de conexão e de execução;
+- limite de concorrência;
+- rate limiting ou proteção equivalente contra abuso;
+- validação estrita dos schemas;
+- allowlist dos hosts acessados pelos providers;
+- proteção contra SSRF;
+- tratamento controlado de redirecionamentos, com limite e revalidação do destino;
+- IDs de correlação;
+- logs estruturados sem conteúdo sensível;
+- graceful shutdown;
+- health check e readiness check separados do endpoint MCP.
+
+A ausência temporária de autenticação MUST ser registrada em ADR, com escopo, riscos,
+controles compensatórios, responsável e condição para revisão. Fonte pública MUST NOT
+autorizar Tool mutável, proxy genérico, acesso arbitrário a URL ou remoção de controles
+contra abuso.
+
+### XXXI. Disciplina do stdio
+No transporte stdio:
+
+- stdout MUST conter exclusivamente mensagens MCP válidas;
+- logs, diagnósticos e mensagens operacionais MUST ser enviados para stderr;
+- banners, mensagens de inicialização e logs MUST NOT contaminar stdout;
+- o processo MUST responder corretamente ao encerramento de stdin e aos sinais de término;
+- testes MUST detectar qualquer escrita inválida em stdout;
+- falhas de inicialização MUST ser reportadas em stderr e por exit code não zero, sem
+  emissão de payload MCP inválido.
+
+### XXXII. Configuração Fail-Closed
+Toda configuração MUST ser validada antes da inicialização do transporte e do anúncio de
+readiness. Para Streamable HTTP, MUST ser validado no mínimo:
+
+- host de bind;
+- porta;
+- caminho do endpoint MCP;
+- timeouts;
+- limite de payload;
+- limite de concorrência;
+- política e allowlist de Origin;
+- allowlist de hosts dos providers;
+- política de redirecionamento;
+- parâmetros de rate limiting ou proteção equivalente.
+
+Configuração ausente, inválida ou insegura MUST causar falha explícita de inicialização.
+O projeto MUST NOT utilizar defaults silenciosos que exponham o servidor em interfaces
+de rede não pretendidas. Bind em interfaces não locais, como `0.0.0.0` ou `::`, MUST
+exigir configuração explícita adequada ao ambiente.
+
+### XXXIII. Gates Obrigatórios de Transporte e Homologação
+A pipeline de qualidade e entrega MUST implementar os seguintes gates:
+
+**Gate A — Build e análise estática**
+
+- build;
+- typecheck;
+- lint;
+- validação dos schemas.
+
+**Gate B — Contrato do núcleo**
+
+- Tools, Resources e Prompts registrados, quando aplicáveis;
+- schemas de entrada e saída;
+- erros determinísticos;
+- providers e persistência corretamente conectados;
+- ausência de regras de negócio nos adaptadores de transporte.
+
+**Gate C — Runtime stdio**
+
+- initialize;
+- tools/list;
+- resources/list, quando aplicável;
+- prompts/list, quando aplicável;
+- tools/call;
+- cancelamento;
+- encerramento limpo;
+- ausência de logs ou conteúdo inválido em stdout.
+
+**Gate D — Runtime Streamable HTTP**
+
+- inicialização do serviço;
+- health e readiness;
+- initialize pelo endpoint MCP;
+- tools/list;
+- resources/list, quando aplicável;
+- prompts/list, quando aplicável;
+- tools/call;
+- sessões, quando habilitadas;
+- cancelamento;
+- limites de payload, concorrência e timeout;
+- Origin permitido e rejeitado;
+- proteção contra SSRF e redirecionamentos indevidos;
+- encerramento controlado.
+
+**Gate E — Paridade**
+
+- comparação automatizada das capabilities e schemas expostos por stdio e Streamable HTTP;
+- comparação dos códigos e envelopes de erro;
+- comparação de resultados para conjunto determinístico de chamadas;
+- comprovação de que os dois transportes utilizam o mesmo núcleo funcional.
+
+**Gate F — Homologação**
+
+- execução do artefato empacotado, não apenas do código-fonte;
+- execução por Streamable HTTP em ambiente equivalente à produção;
+- coleta de evidências, logs, versões, comandos, exit codes e resultados;
+- promoção somente após aprovação de todos os gates aplicáveis.
+
+Falha em qualquer gate MUST impedir a promoção até correção ou exceção formalmente
+aprovada e registrada.
+
+### XXXIV. Empacotamento e Operação Consistentes
+A distribuição MUST permitir iniciar stdio e Streamable HTTP a partir do mesmo commit,
+versão e artefato. A imagem homologada MUST ser a mesma promovida para produção.
+Alterações de comportamento entre ambientes MUST ocorrer apenas por configuração
+validada, nunca por recompilação não rastreada ou alteração manual do artefato.
+
+O processo HTTP MUST executar sem privilégios administrativos, ser compatível com
+contêiner, expor sinais apropriados para liveness, readiness e graceful shutdown e
+preservar correlação observável durante o encerramento. Os entrypoints MUST compartilhar
+o núcleo e os contratos, mas MUST manter ciclos de vida independentes.
+
 ## Stack e Arquitetura
 
-O projeto MUST utilizar TypeScript para o código da aplicação. O cache local MUST ser
-acessado através de abstrações de infraestrutura. MongoDB é a implementação padrão
-atual do cache; a lógica de negócio MUST NOT depender diretamente de MongoDB. A
-implementação MUST seguir as práticas recomendadas para servidores MCP e respeitar o
-Intelligence Budget: priorizar dados relevantes, limitar respostas excessivas e evitar
-trabalho ou contexto redundante.
-Docker MUST ser utilizado para executar o MongoDB e os demais sistemas de apoio
-necessários ao desenvolvimento ou à execução do projeto.
-Builds de homologação MUST executar `npm ci`, typecheck, lint, build limpo, testes,
-auditoria de dependências e varredura de secrets. MUST ser gerada uma SBOM, preferencialmente
-em CycloneDX ou SPDX. Imagens de contêiner MUST ser analisadas com Trivy, Grype ou
-ferramenta corporativa equivalente.
+O projeto MUST utilizar TypeScript para o código da aplicação. A arquitetura MUST
+separar explicitamente:
+
+- núcleo MCP independente de transporte;
+- factories de McpServer e registro de capabilities;
+- adaptador e entrypoint stdio;
+- adaptador e entrypoint Streamable HTTP;
+- providers e adaptadores externos;
+- abstrações de persistência e cache;
+- configuração validada;
+- observabilidade compartilhada sem estado de sessão.
+
+O cache local MUST ser acessado por abstrações de infraestrutura. MongoDB é a
+implementação padrão atual do cache; a lógica de negócio MUST NOT depender diretamente
+de MongoDB nem de um transporte específico. Docker MUST ser utilizado para executar
+MongoDB e os demais sistemas de apoio necessários ao desenvolvimento, testes,
+homologação ou execução.
+
+Builds de homologação MUST executar instalação reproduzível por lockfile, typecheck,
+lint, build limpo, testes, auditoria de dependências e varredura de secrets. MUST ser
+gerada uma SBOM, preferencialmente em CycloneDX ou SPDX. Imagens de contêiner MUST ser
+analisadas com Trivy, Grype ou ferramenta corporativa equivalente.
 
 ## Qualidade e Convenções de Contribuição
 
 O projeto MUST adotar um único framework principal de testes, declarado no plano técnico.
 Para projetos TypeScript, Jest ou o test runner nativo do Node.js MAY ser utilizado
 conforme a baseline do repositório. Toda regra de negócio MUST ser coberta por teste
-unitário e todas as tools MUST ser cobertas por testes de integração, conforme os
-princípios desta Constituição.
+unitário e todas as capabilities externas MUST ser cobertas por testes de integração e
+runtime conforme esta Constituição.
 
-O projeto MUST adotar convenção linguística consistente. Identificadores públicos,
-nomes de Tools, Resources, Prompts, schemas e códigos de erro SHOULD utilizar inglês
-técnico quando destinados à interoperabilidade entre clientes e equipes. Documentação
-e mensagens destinadas aos operadores MAY utilizar português. Commits MUST seguir o
+O projeto MUST adotar convenção linguística consistente. Identificadores públicos, nomes
+de Tools, Resources, Prompts, schemas e códigos de erro SHOULD utilizar inglês técnico
+quando destinados à interoperabilidade entre clientes e equipes. Documentação e
+mensagens destinadas aos operadores MAY utilizar português. Commits MUST seguir o
 formato `tipo(escopo): descrição [REQ-identificador]`, incluindo o identificador do
 requisito relacionado.
+
+## Documentação Operacional Obrigatória
+
+A documentação do projeto MUST incluir:
+
+- comandos de execução stdio e Streamable HTTP;
+- matriz ambiente versus transporte;
+- variáveis e schemas de configuração;
+- endpoints MCP, health e readiness;
+- política de Origin, payload, timeout, concorrência e rate limiting;
+- allowlist de hosts e política de redirecionamentos dos providers;
+- modelo de sessão e cancelamento;
+- procedimentos de graceful shutdown;
+- definição dos Gates A a F e suas evidências;
+- ADRs de exceções, incluindo eventual ausência temporária de autenticação;
+- instruções de troubleshooting sem uso indevido de stdout em stdio.
 
 ## Governance
 
@@ -217,10 +472,16 @@ uma mudança exigir alteração desta Constituição, sua alteração MUST ser f
 commit separado das mudanças de implementação.
 
 Alterações nesta Constituição MUST ser revisadas e registradas com a data da emenda.
-A versão MUST seguir SemVer: MAJOR para remoção ou redefinição incompatível de
-princípios; MINOR para novos princípios ou expansão material das regras; PATCH para
-esclarecimentos sem mudança semântica. Revisões de especificações, planos e mudanças
-de código MUST verificar conformidade com os princípios, stack, convenções e requisitos
-de teste aqui definidos.
+A versão MUST seguir SemVer: MAJOR para remoção, redefinição incompatível ou mudança
+estrutural de princípios; MINOR para novos princípios ou expansão material compatível;
+PATCH para esclarecimentos sem mudança semântica. Revisões de especificações, planos e
+mudanças de código MUST verificar conformidade com os princípios, stack, convenções,
+transportes e requisitos de teste aqui definidos.
 
-**Version**: 4.0.0 | **Ratified**: TODO(RATIFICATION_DATE): confirmar data original de adoção | **Last Amended**: 2026-11-15
+Exceções MUST ser explícitas, limitadas no tempo, aprovadas e registradas em ADR com
+justificativa, risco, controles compensatórios, responsável e critério de encerramento.
+Nenhuma exceção MAY ser inferida a partir de implementação existente.
+
+**Version**: 5.0.0  
+**Ratified**: TODO(RATIFICATION_DATE): confirmar data original de adoção  
+**Last Amended**: 2026-11-15
