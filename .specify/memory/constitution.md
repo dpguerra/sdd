@@ -1,10 +1,21 @@
+<!--
+Sync Impact Report
+Version: 1.0 -> 2.0.0 (new mandatory architecture and delivery constraints may invalidate channel-first designs)
+Modified: Core Architectural Principles -> Core Principles; Clean Architecture Layers;
+Authentication & Authorization; Microservices Contracts; Integration Mechanisms; Idempotency;
+Observability; Testing Strategy; AI Agent Governance; Project Structure; Deliverables.
+Added: API-First -> MCP-Second -> CLI/GUI; Governance.
+Removed: none.
+Deferred: TODO(RATIFICATION_DATE) - original adoption date is unknown; synchronize
+the feature specification and dependent templates separately.
+-->
 # Enterprise SaaS Platform — Constitution
 
 ## Project Overview
 
 An enterprise-grade, multi-tenant SaaS platform optimized for autonomous AI implementation while maintaining strict architectural governance. The system prioritizes modularity, scalability, and maintainability for teams of 20+ engineers.
 
-## Core Architectural Principles
+## Core Principles
 
 ### 1. Architecture Styles
 
@@ -13,7 +24,7 @@ An enterprise-grade, multi-tenant SaaS platform optimized for autonomous AI impl
 - **CQRS** — Separated command and query models with independent evolution
 - **Event-Driven Architecture** — Domain events drive business operations
 - **Modular Monolith First** — Explicit bounded contexts, microservices-ready
-- **API First** — RESTful APIs as primary integration mechanism
+- **API-First → MCP-Second → CLI/GUI** — Canonical operational contracts before channel exposure
 - **Cloud Native** — Containerized, orchestration-ready, horizontally scalable
 
 ### 2. Technology Stack
@@ -44,25 +55,80 @@ An enterprise-grade, multi-tenant SaaS platform optimized for autonomous AI impl
 - Kubernetes Ready
 - Environment-based configuration
 
+## API-First → MCP-Second → CLI/GUI
+
+### API-First
+
+- Every platform capability MUST have a stable, versioned, documented, testable,
+  authenticated, authorized, tenant-aware, and observable API contract before release
+  through MCP, CLI, GUI, SDK, automation, or external integrations. The API contract is
+  the canonical operational contract.
+- REST MUST be the default external API style unless an Architecture Decision Record
+  justifies another protocol. REST contracts MUST use OpenAPI; an approved alternative
+  MUST use an equivalent machine-readable contract specification.
+- Contracts MUST define authentication, authorization, tenant scope, validation, errors,
+  audit, and observability. Authentication bootstrap operations MUST authenticate supplied
+  credentials without requiring a previously issued access token.
+- Applicable state-changing operations MUST define idempotency, concurrency, validation,
+  error, audit, and retry semantics.
+- API contracts MUST be independent of presentation channels and provider-specific
+  implementations. Business capabilities MUST NOT exist exclusively in controllers,
+  MCP servers, CLI commands, GUI components, SDKs, provider adapters, or automation scripts.
+
+### MCP-Second
+
+- Capabilities relevant to AI agents SHOULD be exposed through MCP so agents can use platform
+  capabilities. MCP exposure MUST follow the canonical API contract and governed application
+  capability.
+- MCP is an agent-oriented semantic interface, not an alternative implementation of domain
+  or application logic. MCP tools MAY compose platform operations and need not mirror API
+  endpoints one-to-one.
+- MCP servers MUST preserve authentication, authorization, tenant isolation, policy,
+  validation, audit, idempotency, concurrency, observability, and state-management guarantees.
+  MCP MUST NOT independently decide authorization; deterministic platform services make
+  authoritative decisions.
+- MCP MUST NOT call a provider or vendor API directly when an equivalent governed platform
+  capability exists.
+
+### CLI/GUI and Other Channels
+
+- CLI, GUI, SDKs, automation, and external integrations are consumers of canonical platform
+  capabilities. They MUST NOT implement authoritative business rules or privileged execution
+  paths unavailable through platform contracts.
+- Every channel MUST preserve platform security, tenancy, policy, audit, error, and observability
+  semantics. Operational completeness MUST NOT depend on a GUI.
+
+### Contract-First Delivery
+
+The required delivery sequence is:
+
+```
+Resource and capability model
+    → Canonical API contract
+    → Application port and use case
+    → API implementation
+    → Contract and architecture tests
+    → MCP exposure, when agent-relevant
+    → CLI/GUI exposure, when required
+```
+
+In-process adapters MAY invoke application ports directly; loopback HTTP calls are not required.
+Such calls MUST pass through the same authoritative validation, authentication context,
+authorization, tenant isolation, policy, audit, idempotency, concurrency, and observability
+mechanisms defined by the canonical contract. No internal invocation may bypass those controls.
+Correlation and trace context MUST propagate from the initiating channel through execution.
+
 ## Clean Architecture Layers
 
 ### Layer Hierarchy
 
-```
-┌─────────────────────────────────────┐
-│      Infrastructure                 │
-│  (Prisma, Redis, NestJS, Fastify)   │
-├─────────────────────────────────────┤
-│      Presentation                   │
-│  (Controllers, Interceptors, Guards)│
-├─────────────────────────────────────┤
-│      Application                    │
-│  (Use Cases, Commands, Queries)     │
-├─────────────────────────────────────┤
-│      Domain (Pure TypeScript)       │
-│  (Entities, Aggregates, Services)   │
-└─────────────────────────────────────┘
-```
+Runtime flow: inbound channel adapter → application port/use case → domain; the application
+may then use an outbound port/adapter when infrastructure is needed. This is not a source-code
+dependency diagram.
+
+Source dependencies point inward: inbound adapters depend on application contracts;
+application code depends on the domain and defines the ports it needs; outbound adapters
+implement those ports and depend inward. The domain depends on neither adapter.
 
 ### Dependency Rules
 
@@ -70,6 +136,9 @@ An enterprise-grade, multi-tenant SaaS platform optimized for autonomous AI impl
 - Dependencies point ONLY inward
 - Higher layers depend on lower layers
 - No circular dependencies permitted
+- API controllers, MCP servers, CLI, GUI, SDK entry points, and automation handlers are
+  inbound adapters. Persistence, brokers, provider integrations, and vendor SDKs are outbound
+  adapters. Neither kind of adapter may own domain or application rules.
 
 **Domain Layer Prohibitions:**
 Domain code MUST NOT depend on:
@@ -282,7 +351,7 @@ class UserRepository {
   }
 }
 
-// Guard: Validate tenant authorization
+// Guard delegates channel checks; the application enforces authoritative authorization
 @UseGuards(TenantGuard)
 @Controller('api/invoices')
 class InvoiceController {
@@ -290,7 +359,7 @@ class InvoiceController {
   
   @Get(':id')
   async getInvoice(@Param('id') invoiceId: string) {
-    // Guard ensures user belongs to request tenant
+    // The application also authorizes the operation within the request tenant.
     return this.query.execute(invoiceId);
   }
 }
@@ -337,10 +406,11 @@ class InvoiceController {
 - SAML 2.0
 
 **Rules:**
-- Authorization logic lives in Guards, not Controllers
-- Controllers delegate to Guards
-- Use Decorators for declarative authorization
-- Fail-secure: deny by default
+- Guards MAY perform channel-specific enforcement, but MUST NOT be the only protection.
+- Authoritative authorization and policy decisions MUST reside in shared application or
+  control-plane services or ports, not controllers or channel adapters.
+- Every inbound channel MUST invoke the same authoritative authorization capability.
+- Authorization MUST deny by default. Decorators MAY declare channel requirements.
 
 ```typescript
 @UseGuards(AuthGuard, BillingGuard)
@@ -417,28 +487,13 @@ class InvoiceController {
 ### Microservices Contracts
 
 **Explicit Boundaries:**
-- Context API surface defined
-- Input/Output DTOs versioned
-- Change logs maintained
-
-**Example Contract:**
-
-```typescript
-// @sdd/billing-context-contract
-
-export interface BillingContext {
-  commands: {
-    CreateInvoiceCommand: (payload: CreateInvoicePayload) => Promise<InvoiceId>;
-  };
-  events: {
-    InvoiceGeneratedEvent: DomainEvent;
-    PaymentApprovedEvent: DomainEvent;
-  };
-  queries: {
-    GetInvoiceQuery: (id: InvoiceId) => Promise<Invoice>;
-  };
-}
-```
+- Canonical API contracts MUST define synchronous operational capabilities.
+- Asynchronous integration events MUST have separate versioned contracts.
+- Application commands and domain events are not automatically public API contracts.
+- Public DTOs and integration event schemas MUST be versioned independently of internal
+  domain models. Change logs MUST be maintained.
+- Breaking changes MUST use a new contract version or an explicitly governed compatibility
+  and migration process; supported versions MUST be covered by compatibility tests.
 
 ### Integration Mechanisms
 
@@ -446,7 +501,7 @@ export interface BillingContext {
 |-----------|----------|---------|
 | **Async Events** | Loose coupling, eventual consistency | SubscriptionActivated → SendWelcomeEmail |
 | **Message Broker** | Distributed transactions, outbox pattern | RabbitMQ topic subscriptions |
-| **REST APIs** | Synchronous queries, service-to-service | GET /invoices/:id |
+| **REST APIs** | Canonical synchronous commands and queries | GET /invoices/:id |
 | **gRPC** (Future) | High-throughput, low-latency internal APIs | Streaming events |
 
 ### Idempotency
@@ -458,19 +513,8 @@ export interface BillingContext {
 - Idempotency cache (Redis)
 - Deduplication in event handlers
 
-```typescript
-@Post('/invoices')
-@Idempotent()
-async createInvoice(@Header('Idempotency-Key') key: string) {
-  // Redis lookup prevents duplicate processing
-  const cached = await this.cache.get(key);
-  if (cached) return cached;
-  
-  const result = await this.command.execute(dto);
-  await this.cache.set(key, result, TTL_1HOUR);
-  return result;
-}
-```
+Idempotency enforcement MUST remain authoritative across channels and handle concurrent
+attempts; a channel-local cache check alone MUST NOT be treated as sufficient.
 
 ## Observability
 
@@ -506,6 +550,7 @@ async createInvoice(@Header('Idempotency-Key') key: string) {
 
 **OpenTelemetry Implementation:**
 - Trace ID propagation across services
+- Correlation and trace context propagation from each inbound channel through execution
 - Span creation per operation
 - Baggage for context propagation
 - Resource attributes (service, version, environment)
@@ -672,6 +717,20 @@ class SubscriptionService {
 - Event schemas
 - API response/request formats
 
+**Mandatory Contract and Architecture Gates:**
+- API contracts MUST be machine-readable as specified by the API-First principle.
+- Contract tests MUST cover requests, responses, validation, and error behavior.
+- Tests MUST verify authentication, authorization, tenant isolation, and backward compatibility
+  for supported API versions.
+- Tests MUST verify idempotency for retryable state changes, concurrency where concurrent
+  updates are possible, and correlation and trace propagation.
+- Where MCP exposure exists, MCP contract tests MUST verify compatibility with the underlying
+  platform contracts, including composed operations.
+- Cross-channel tests MUST verify that each exposed MCP, CLI, GUI, SDK, and automation path
+  preserves platform governance and cannot bypass its controls.
+- Automated dependency tests MUST prevent channel or provider adapters from leaking into the
+  domain or application and MUST prevent adapters from owning authoritative business rules.
+
 **E2E Tests:**
 - Complete user workflows
 - Multi-step transactions
@@ -784,7 +843,7 @@ function createUserId(value: string): UserId {
 |-------|---------|-----------|
 | Domain | Only types/interfaces | Prisma import |
 | Application | Repository interfaces | Direct Prisma calls |
-| Presentation | Repository interfaces | Direct database access |
+| Presentation | Application ports | Direct repository or database access |
 | Infrastructure | Prisma implementation | Business logic |
 
 **Example Implementation:**
@@ -875,6 +934,11 @@ Before generating any code, **VALIDATE:**
 - [ ] Anti-patterns detection — Does code contain forbidden patterns?
 - [ ] Architectural violations — Are framework/database leaks present?
 - [ ] Test completeness — Are all business rules tested?
+- [ ] Canonical API contract, shared authorization, tenant isolation, and required channel
+      and architecture tests exist before channel exposure.
+- [ ] Delivery follows resource/capability model → API contract → application port/use case →
+      API implementation → contract and architecture tests → MCP when agent-relevant →
+      CLI/GUI when required.
 
 ### Code Generation Standards
 
@@ -885,7 +949,8 @@ Before generating any code, **VALIDATE:**
 3. Application use cases (commands/queries, handlers)
 4. Repository interfaces (domain-layer contracts)
 5. Infrastructure implementations (Prisma repositories)
-6. API endpoints (REST controllers)
+6. Versioned, documented API contracts and implementations (REST by default), with contract
+   and architecture tests before any applicable MCP, CLI, or GUI exposure
 7. Unit tests (minimum 85% coverage)
 8. Integration tests (repository + handler)
 9. Architecture documentation (component diagram)
@@ -903,6 +968,13 @@ Before generating any code, **VALIDATE:**
 8. Missing tenant context enforcement
 9. Circular dependencies
 10. Copy-paste logic (suggest extraction)
+11. Business capabilities existing only in MCP, CLI, GUI, or other channel adapters
+12. Direct provider integration bypassing an existing governed platform capability
+13. Channel-specific authorization that another channel can bypass
+14. Duplicated domain or application logic in MCP servers or presentation components
+15. State-changing operations lacking applicable idempotency or concurrency semantics
+16. Externally visible behavior lacking a versioned contract
+17. MCP implementations weakening API governance guarantees
 
 ## Project Structure
 
@@ -915,7 +987,8 @@ sdd/
 │   │   └── ...
 │   └── workflows/           # GitHub Actions
 ├── .specify/                # Spec Kit configuration
-│   ├── constitution.md      # This file
+│   ├── memory/
+│   │   └── constitution.md  # This file
 │   ├── architecture.md      # Architecture guide
 │   ├── standards.md         # Code standards
 │   └── templates/
@@ -945,7 +1018,7 @@ sdd/
 │   └── docker-compose.yml
 ├── docs/
 │   ├── architecture.md      # Architecture diagrams
-│   ├── api.md               # API documentation
+│   ├── api.md               # API contract documentation and supported versions
 │   └── domain-model.md      # Domain model glossary
 ├── package.json
 ├── tsconfig.json
@@ -986,7 +1059,7 @@ sdd/
 
 This constitution mandates the following artifacts:
 
-- ✅ `.specify/constitution.md` — Project principles and rules
+- ✅ `.specify/memory/constitution.md` — Project principles and rules
 - [ ] `.specify/architecture.md` — Architecture guide and diagrams
 - [ ] `.specify/standards.md` — Code standards and style guide
 - [ ] `.specify/templates/feature-template.md` — Feature implementation template
@@ -995,6 +1068,20 @@ This constitution mandates the following artifacts:
 
 ---
 
-**Version:** 1.0  
-**Last Updated:** 2025-11-22  
+## Governance
+
+- This constitution governs project decisions and MUST be checked in feature plans and reviews.
+- Amendments MUST document the change, receive project maintainer approval, and identify
+  affected artifacts and any required migration before adoption.
+- Constitution versions follow semantic versioning: MAJOR for backward-incompatible
+  governance changes, MINOR for new principles or material guidance, and PATCH for
+  non-semantic clarifications. The 2.0.0 major increment introduces mandatory architecture
+  and delivery constraints that may invalidate existing channel-first designs.
+- Reviews MUST verify compliance and identify unresolved violations before implementation.
+- **Ratified:** TODO(RATIFICATION_DATE): Original adoption date is unknown.
+
+**Version:** 2.0.0
+
+**Last Updated:** 2026-11-22
+
 **Status:** Active
