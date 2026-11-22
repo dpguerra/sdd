@@ -1,11 +1,33 @@
 ---
-name: "speckit-specify"
-description: "Create or update the feature specification from a natural language feature description."
-compatibility: "Requires spec-kit project structure with .specify/ directory"
+name: speckit-specify
+description: Create or update the feature specification from a natural language feature
+  description.
+compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: "github-spec-kit"
-  source: "templates/commands/specify.md"
+  author: github-spec-kit
+  source: preset:copilot-sub-agents
+  version: 1.0.0
 ---
+
+# Speckit Specify Skill
+
+## Sub-Agent Delegation
+
+When executing this command, delegate independent work to parallel sub-agents to reduce total execution time.
+
+**How to dispatch sub-agents in Copilot:**
+
+- **VS Code**: Use the `runSubagent` tool to spawn each sub-agent in an isolated context.
+- **CLI**: Delegate to a sub-agent process — Copilot CLI automatically manages subsidiary sub-agent execution. You can also target custom agents defined in `.github/agents/` or `~/.copilot/agents/`.
+
+### Spec Quality Validation
+
+After writing the specification to SPEC_FILE (step 6), dispatch the quality validation as a sub-agent while the main agent prepares the completion report:
+
+- **Sub-agent: Quality Validation** — "Validate the specification at {SPEC_FILE} against these quality criteria: no implementation details, focused on user value, testable requirements, measurable success criteria, all scenarios defined, edge cases identified, scope bounded. Generate a checklist at {FEATURE_DIR}/checklists/requirements.md. Return: pass/fail status for each item and specific issues found."
+
+If the sub-agent reports failures, address them in the main agent before finalizing.
+
 
 
 ## User Input
@@ -91,7 +113,7 @@ Given that feature description, do this:
       - If `branch_numbering` was used (and `feature_numbering` was absent), emit a one-line warning: "⚠️ `branch_numbering` in init-options.json is deprecated. Rename to `feature_numbering`."
 
    **Create the directory and spec file**:
-   - Run `.specify/scripts/bash/resolve-template.sh spec-template --json` from the repository root and parse `TEMPLATE_CONTENT` as the active `spec-template`. The shared resolver composes project overrides, preset layers, and extension layers over the core template, including `append`, `prepend`, and `wrap` strategies. If it fails, stop and report the resolution error; do not continue with only one contributing template layer.
+   - Run `.specify/scripts/powershell/resolve-template.ps1 spec-template -Json` from the repository root and parse `TEMPLATE_CONTENT` as the active `spec-template`. The shared resolver composes project overrides, preset layers, and extension layers over the core template, including `append`, `prepend`, and `wrap` strategies. If it fails, stop and report the resolution error; do not continue with only one contributing template layer.
    - `mkdir -p SPECIFY_FEATURE_DIRECTORY`
    - Write `TEMPLATE_CONTENT` to `SPECIFY_FEATURE_DIRECTORY/spec.md` as the starting point. Do not copy a template file from disk instead: when a preset composes `spec-template`, no single file holds the full template.
    - Set `SPEC_FILE` to `SPECIFY_FEATURE_DIRECTORY/spec.md`

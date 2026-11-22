@@ -1,11 +1,44 @@
 ---
-name: "speckit-tasks"
-description: "Generate an actionable, dependency-ordered tasks.md for the feature based on available design artifacts."
-compatibility: "Requires spec-kit project structure with .specify/ directory"
+name: speckit-tasks
+description: Generate an actionable, dependency-ordered tasks.md for the feature based
+  on available design artifacts.
+compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: "github-spec-kit"
-  source: "templates/commands/tasks.md"
+  author: github-spec-kit
+  source: preset:copilot-sub-agents
+  version: 1.0.0
 ---
+
+# Speckit Tasks Skill
+
+## Sub-Agent Delegation
+
+When executing this command, delegate independent work to parallel sub-agents to reduce total execution time.
+
+**How to dispatch sub-agents in Copilot:**
+
+- **VS Code**: Use the `runSubagent` tool to spawn each sub-agent in an isolated context.
+- **CLI**: Delegate to a sub-agent process — Copilot CLI automatically manages subsidiary sub-agent execution. You can also target custom agents defined in `.github/agents/` or `~/.copilot/agents/`.
+
+### Document Loading in Parallel
+
+When loading design documents (step 2), dispatch parallel reads for all available documents:
+
+1. **Sub-agent: Core docs** — "Read plan.md and spec.md. Extract tech stack, libraries, project structure, user stories with priorities (P1, P2, P3). Return structured summaries of both."
+2. **Sub-agent: Supporting docs** — "Read data-model.md, contracts/, research.md, and quickstart.md (whichever exist under {FEATURE_DIR}). Extract entities, interface contracts, technical decisions, and test scenarios. Return a consolidated summary."
+
+### Per-User-Story Task Generation
+
+After loading all documents, generate tasks for independent user stories in parallel:
+
+- For each user story (P1, P2, P3, ...) from spec.md:
+  → Sub-agent: "Generate implementation tasks for User Story {N}: '{story title}'. Tech stack: {from plan.md}. Related entities: {from data-model.md if applicable}. Related contracts: {from contracts/ if applicable}. Follow the strict checklist format: - [ ] [TaskID] [P?] [USN] Description with file path. Return: ordered task list with dependency notes and parallel markers."
+
+Collect all sub-agent results, then:
+- Assign sequential Task IDs (T001, T002, ...) across all phases
+- Resolve cross-story dependencies
+- Assemble into the final tasks.md using the template structure
+
 
 
 ## User Input
@@ -54,7 +87,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Outline
 
-1. **Setup**: Run `.specify/scripts/bash/setup-tasks.sh --json` from repo root and parse FEATURE_DIR, TASKS_TEMPLATE_CONTENT, TASKS_TEMPLATE, and AVAILABLE_DOCS list. `FEATURE_DIR` and `TASKS_TEMPLATE` must be absolute paths when provided. `AVAILABLE_DOCS` is a list of document names/relative paths available under `FEATURE_DIR` (for example `research.md` or `contracts/`). For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
+1. **Setup**: Run `.specify/scripts/powershell/setup-tasks.ps1 -Json` from repo root and parse FEATURE_DIR, TASKS_TEMPLATE_CONTENT, TASKS_TEMPLATE, and AVAILABLE_DOCS list. `FEATURE_DIR` and `TASKS_TEMPLATE` must be absolute paths when provided. `AVAILABLE_DOCS` is a list of document names/relative paths available under `FEATURE_DIR` (for example `research.md` or `contracts/`). For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
 
 2. **Load design documents**: Read from FEATURE_DIR:
    - **Required**: plan.md (tech stack, libraries, structure), spec.md (user stories with priorities)
@@ -65,13 +98,14 @@ You **MUST** consider the user input before proceeding (if not empty).
 3. **Execute task generation workflow**:
    - Load plan.md and extract tech stack, libraries, project structure
    - Load spec.md and extract user stories with their priorities (P1, P2, P3, etc.)
-   - If data-model.md exists: Extract entities and map to user stories
+   - If data-model.md exists: Extract entities and constrained fields, including constraints encoded in field types, and map to user stories
    - If contracts/ exists: Map interface contracts to user stories
    - If research.md exists: Extract decisions for setup tasks
    - Generate tasks organized by user story (see Task Generation Rules below)
    - Generate dependency graph showing user story completion order
    - Create parallel execution examples per user story
    - Validate task completeness (each user story has all needed tasks, independently testable)
+   - If data-model.md has constrained fields: Verify every constrained field has an explicit, resolving citation to `data-model.md` and its `Entity.field` in at least one implementing task; correct missing or unresolved citations before returning tasks.md
 
 4. **Generate tasks.md**: Use TASKS_TEMPLATE_CONTENT (from the JSON output above) as the structure. For compatibility with older setup scripts that omit TASKS_TEMPLATE_CONTENT, read TASKS_TEMPLATE instead. Fill with:
    - Correct feature name from plan.md
@@ -133,7 +167,7 @@ Output path to generated tasks.md and summary:
 
 Context for task generation: $ARGUMENTS
 
-The tasks.md should be immediately executable - each task must be specific enough that an LLM can complete it without additional context.
+The tasks.md should be immediately executable - each task must be specific enough that an LLM can complete it without context beyond the feature's design documents. This does not require copying those documents into task descriptions.
 
 ## Task Generation Rules
 
@@ -192,7 +226,10 @@ Every task MUST strictly follow this format:
    - Map each entity to the user story(ies) that need it
    - If entity serves multiple stories: Put in earliest story or Setup phase
    - Relationships → service layer tasks in appropriate story phase
-   - For each field with constraints in data-model.md (max length, nullable/required, enum values, validation rules), quote the constraint verbatim in the task description so it is not left to implementation-time discretion
+   - data-model.md is the canonical source for field constraints (max/min length, nullable/required, enum values, validation rules), including constraints encoded in field types
+   - Cite each constrained field explicitly using `data-model.md` and its exact `Entity.field` in the implementing task description; plain text or links are acceptable when both are unambiguous. A shared implementing task may cite multiple fields
+   - Associate each cited field explicitly with its canonical definition. A field mention elsewhere in the task is not a citation merely because other fields in that task cite data-model.md
+   - Use citations instead of duplicated constraint prose. Do not require verbatim copies of constraints in tasks.md. Do not restate unchanged constraints; state a constraint only when the task adds to or narrows the canonical rule, and identify that task-specific addition or narrowing. Task-specific constraints MUST NOT contradict the canonical field definition
 
 4. **From Setup/Infrastructure**:
    - Shared infrastructure → Setup phase (Phase 1)

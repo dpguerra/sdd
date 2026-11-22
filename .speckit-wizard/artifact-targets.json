@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "entries": {
+    "commands/speckit.git.validate": {
+      "description": "Validate that the current Git branch follows feature branch naming conventions",
+      "source": "llm",
+      "skillPath": ".specify/extensions/git/commands/speckit.git.validate.md"
+    },
+    "commands/speckit.git.remote": {
+      "description": "Detect the Git remote URL for integration with GitHub services",
+      "source": "llm",
+      "skillPath": ".specify/extensions/git/commands/speckit.git.remote.md"
+    },
+    "commands/speckit.github.taskstoissues": {
+      "description": "Convert existing tasks into actionable, dependency-ordered GitHub issues using available design artifacts",
+      "source": "llm",
+      "skillPath": ".specify/extensions/github/commands/speckit.github.taskstoissues.md"
+    }
+  },
+  "updatedAt": "2026-11-22T20:00:38.266Z"
+}

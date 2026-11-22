@@ -1,0 +1,897 @@
+{
+  "$schema": "speckit-wizard/v1",
+  "currentPhase": "setup",
+  "preset": "copilot-sub-agents",
+  "setup": {
+    "pluginInstalled": true,
+    "cliInstalled": true,
+    "projectInitialized": true,
+    "skillsReloaded": true,
+    "catalogsLoaded": false
+  },
+  "phases": {
+    "setup": {
+      "status": "done",
+      "optionalSkipped": false,
+      "lastRunAt": null,
+      "formValues": {},
+      "artifactPath": null
+    },
+    "preset": {
+      "status": "empty",
+      "optionalSkipped": false,
+      "lastRunAt": null,
+      "formValues": {},
+      "artifactPath": null
+    },
+    "constitution": {
+      "status": "done",
+      "optionalSkipped": false,
+      "lastRunAt": null,
+      "formValues": {},
+      "artifactPath": ".specify/memory/constitution.md"
+    },
+    "specify": {
+      "status": "done",
+      "optionalSkipped": false,
+      "lastRunAt": null,
+      "formValues": {},
+      "artifactPath": "specs/001-platform-core-foundation/spec.md"
+    },
+    "clarify": {
+      "status": "empty",
+      "optionalSkipped": false,
+      "lastRunAt": null,
+      "formValues": {},
+      "artifactPath": "specs/001-platform-core-foundation/spec.md"
+    },
+    "checklist": {
+      "status": "empty",
+      "optionalSkipped": false,
+      "lastRunAt": null,
+      "formValues": {},
+      "artifactPath": "specs/<slug>/checklists/"
+    },
+    "plan": {
+      "status": "empty",
+      "optionalSkipped": false,
+      "lastRunAt": null,
+      "formValues": {},
+      "artifactPath": "specs/<slug>/plan.md"
+    },
+    "tasks": {
+      "status": "empty",
+      "optionalSkipped": false,
+      "lastRunAt": null,
+      "formValues": {},
+      "artifactPath": "specs/<slug>/tasks.md"
+    },
+    "analyze": {
+      "status": "empty",
+      "optionalSkipped": false,
+      "lastRunAt": null,
+      "formValues": {},
+      "artifactPath": "specs/<slug>/analysis.md"
+    },
+    "taskstoissues": {
+      "status": "empty",
+      "optionalSkipped": false,
+      "lastRunAt": null,
+      "formValues": {},
+      "artifactPath": null
+    },
+    "implement": {
+      "status": "empty",
+      "optionalSkipped": false,
+      "lastRunAt": null,
+      "formValues": {},
+      "artifactPath": null
+    },
+    "converge": {
+      "status": "empty",
+      "optionalSkipped": false,
+      "lastRunAt": null,
+      "formValues": {},
+      "artifactPath": "specs/<slug>/tasks.md"
+    }
+  },
+  "pipeline": null,
+  "composition": {
+    "presets": [
+      {
+        "id": "copilot-sub-agents",
+        "name": "copilot-sub-agents",
+        "priority": 10,
+        "enabled": true,
+        "description": "",
+        "provides": {
+          "commands": 8,
+          "templates": 0,
+          "scripts": 0
+        }
+      }
+    ],
+    "extensions": [
+      {
+        "id": "git",
+        "name": "git",
+        "priority": 10,
+        "enabled": true,
+        "description": "",
+        "provides": {
+          "commands": 5,
+          "templates": 0,
+          "scripts": 0,
+          "hooks": 18
+        }
+      },
+      {
+        "id": "github",
+        "name": "github",
+        "priority": 10,
+        "enabled": true,
+        "description": "",
+        "provides": {
+          "commands": 1,
+          "templates": 0,
+          "scripts": 0,
+          "hooks": 0
+        }
+      }
+    ],
+    "artifacts": [
+      {
+        "id": "commands/speckit.specify",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "preset",
+            "presetId": "copilot-sub-agents",
+            "presetName": "copilot-sub-agents",
+            "strategy": "prepend",
+            "version": null,
+            "sourcePath": ".specify/presets/copilot-sub-agents/commands/speckit.specify.md",
+            "active": true
+          },
+          {
+            "layer": "core",
+            "active": false,
+            "strategy": "replace"
+          }
+        ],
+        "description": "Prepend sub-agent delegation for spec quality validation",
+        "hooks": [
+          {
+            "phase": "before_specify",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.feature",
+            "declared": true,
+            "registered": true
+          },
+          {
+            "phase": "after_specify",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          }
+        ],
+        "effectiveBaseIdx": 1
+      },
+      {
+        "id": "commands/speckit.plan",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "preset",
+            "presetId": "copilot-sub-agents",
+            "presetName": "copilot-sub-agents",
+            "strategy": "prepend",
+            "version": null,
+            "sourcePath": ".specify/presets/copilot-sub-agents/commands/speckit.plan.md",
+            "active": true
+          },
+          {
+            "layer": "core",
+            "active": false,
+            "strategy": "replace"
+          }
+        ],
+        "description": "Prepend sub-agent delegation for parallel research and design artifact generation",
+        "hooks": [
+          {
+            "phase": "before_plan",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          },
+          {
+            "phase": "after_plan",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          }
+        ],
+        "effectiveBaseIdx": 1
+      },
+      {
+        "id": "commands/speckit.tasks",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "preset",
+            "presetId": "copilot-sub-agents",
+            "presetName": "copilot-sub-agents",
+            "strategy": "prepend",
+            "version": null,
+            "sourcePath": ".specify/presets/copilot-sub-agents/commands/speckit.tasks.md",
+            "active": true
+          },
+          {
+            "layer": "core",
+            "active": false,
+            "strategy": "replace"
+          }
+        ],
+        "description": "Prepend sub-agent delegation for parallel document loading and per-user-story task generation",
+        "hooks": [
+          {
+            "phase": "before_tasks",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          },
+          {
+            "phase": "after_tasks",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          }
+        ],
+        "effectiveBaseIdx": 1
+      },
+      {
+        "id": "commands/speckit.implement",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "preset",
+            "presetId": "copilot-sub-agents",
+            "presetName": "copilot-sub-agents",
+            "strategy": "prepend",
+            "version": null,
+            "sourcePath": ".specify/presets/copilot-sub-agents/commands/speckit.implement.md",
+            "active": true
+          },
+          {
+            "layer": "core",
+            "active": false,
+            "strategy": "replace"
+          }
+        ],
+        "description": "Prepend sub-agent delegation for parallel [P] task execution",
+        "hooks": [
+          {
+            "phase": "before_implement",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          },
+          {
+            "phase": "after_implement",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          }
+        ],
+        "effectiveBaseIdx": 1
+      },
+      {
+        "id": "commands/speckit.analyze",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "preset",
+            "presetId": "copilot-sub-agents",
+            "presetName": "copilot-sub-agents",
+            "strategy": "prepend",
+            "version": null,
+            "sourcePath": ".specify/presets/copilot-sub-agents/commands/speckit.analyze.md",
+            "active": true
+          },
+          {
+            "layer": "core",
+            "active": false,
+            "strategy": "replace"
+          }
+        ],
+        "description": "Prepend sub-agent delegation for parallel detection passes",
+        "hooks": [
+          {
+            "phase": "before_analyze",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          },
+          {
+            "phase": "after_analyze",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          }
+        ],
+        "effectiveBaseIdx": 1
+      },
+      {
+        "id": "commands/speckit.checklist",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "preset",
+            "presetId": "copilot-sub-agents",
+            "presetName": "copilot-sub-agents",
+            "strategy": "prepend",
+            "version": null,
+            "sourcePath": ".specify/presets/copilot-sub-agents/commands/speckit.checklist.md",
+            "active": true
+          },
+          {
+            "layer": "core",
+            "active": false,
+            "strategy": "replace"
+          }
+        ],
+        "description": "Prepend sub-agent delegation for parallel context loading",
+        "hooks": [
+          {
+            "phase": "before_checklist",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          },
+          {
+            "phase": "after_checklist",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          }
+        ],
+        "effectiveBaseIdx": 1
+      },
+      {
+        "id": "commands/speckit.clarify",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "preset",
+            "presetId": "copilot-sub-agents",
+            "presetName": "copilot-sub-agents",
+            "strategy": "prepend",
+            "version": null,
+            "sourcePath": ".specify/presets/copilot-sub-agents/commands/speckit.clarify.md",
+            "active": true
+          },
+          {
+            "layer": "core",
+            "active": false,
+            "strategy": "replace"
+          }
+        ],
+        "description": "Prepend sub-agent delegation for parallel ambiguity scan categories",
+        "hooks": [
+          {
+            "phase": "before_clarify",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          },
+          {
+            "phase": "after_clarify",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          }
+        ],
+        "effectiveBaseIdx": 1
+      },
+      {
+        "id": "commands/speckit.taskstoissues",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "preset",
+            "presetId": "copilot-sub-agents",
+            "presetName": "copilot-sub-agents",
+            "strategy": "prepend",
+            "version": null,
+            "sourcePath": ".specify/presets/copilot-sub-agents/commands/speckit.taskstoissues.md",
+            "active": true
+          },
+          {
+            "layer": "core",
+            "active": false,
+            "strategy": "replace"
+          }
+        ],
+        "description": "Prepend sub-agent delegation for parallel GitHub issue creation",
+        "hooks": [
+          {
+            "phase": "before_taskstoissues",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          },
+          {
+            "phase": "after_taskstoissues",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          }
+        ],
+        "effectiveBaseIdx": 1
+      },
+      {
+        "id": "commands/speckit.git.validate",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "extension",
+            "presetId": "git",
+            "presetName": "git",
+            "strategy": "replace",
+            "version": null,
+            "sourcePath": ".specify/extensions/git/commands/speckit.git.validate.md",
+            "active": true
+          }
+        ],
+        "description": "Validate current branch follows feature branch naming conventions",
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "commands/speckit.git.remote",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "extension",
+            "presetId": "git",
+            "presetName": "git",
+            "strategy": "replace",
+            "version": null,
+            "sourcePath": ".specify/extensions/git/commands/speckit.git.remote.md",
+            "active": true
+          }
+        ],
+        "description": "Detect Git remote URL for GitHub integration",
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "commands/speckit.github.taskstoissues",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "extension",
+            "presetId": "github",
+            "presetName": "github",
+            "strategy": "replace",
+            "version": null,
+            "sourcePath": ".specify/extensions/github/commands/speckit.github.taskstoissues.md",
+            "active": true
+          }
+        ],
+        "description": "Convert tasks from tasks.md into dependency-ordered GitHub issues",
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "commands/speckit.constitution",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "core",
+            "active": true,
+            "strategy": "replace"
+          }
+        ],
+        "hooks": [
+          {
+            "phase": "before_constitution",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.initialize",
+            "declared": true,
+            "registered": true
+          },
+          {
+            "phase": "after_constitution",
+            "extensionId": "git",
+            "extensionName": "git",
+            "targetCommand": "speckit.git.commit",
+            "declared": true,
+            "registered": true
+          }
+        ],
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "commands/speckit.converge",
+        "kind": "command",
+        "stack": [
+          {
+            "layer": "core",
+            "active": true,
+            "strategy": "replace"
+          }
+        ],
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "spec-template",
+        "kind": "template",
+        "stack": [
+          {
+            "layer": "core",
+            "active": true,
+            "strategy": "replace"
+          }
+        ],
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "plan-template",
+        "kind": "template",
+        "stack": [
+          {
+            "layer": "core",
+            "active": true,
+            "strategy": "replace"
+          }
+        ],
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "tasks-template",
+        "kind": "template",
+        "stack": [
+          {
+            "layer": "core",
+            "active": true,
+            "strategy": "replace"
+          }
+        ],
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "checklist-template",
+        "kind": "template",
+        "stack": [
+          {
+            "layer": "core",
+            "active": true,
+            "strategy": "replace"
+          }
+        ],
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "constitution-template",
+        "kind": "template",
+        "stack": [
+          {
+            "layer": "core",
+            "active": true,
+            "strategy": "replace"
+          }
+        ],
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "agent-file-template",
+        "kind": "template",
+        "stack": [
+          {
+            "layer": "core",
+            "active": true,
+            "strategy": "replace"
+          }
+        ],
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "check-prerequisites",
+        "kind": "script",
+        "stack": [
+          {
+            "layer": "core",
+            "active": true,
+            "strategy": "replace"
+          }
+        ],
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "common",
+        "kind": "script",
+        "stack": [
+          {
+            "layer": "core",
+            "active": true,
+            "strategy": "replace"
+          }
+        ],
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "setup-plan",
+        "kind": "script",
+        "stack": [
+          {
+            "layer": "core",
+            "active": true,
+            "strategy": "replace"
+          }
+        ],
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "setup-tasks",
+        "kind": "script",
+        "stack": [
+          {
+            "layer": "core",
+            "active": true,
+            "strategy": "replace"
+          }
+        ],
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "commands/speckit.git.initialize",
+        "kind": "hook",
+        "stack": [
+          {
+            "layer": "extension",
+            "presetId": "git",
+            "presetName": "git",
+            "strategy": "replace",
+            "version": null,
+            "active": true
+          }
+        ],
+        "hookBindings": [
+          {
+            "phase": "before_constitution",
+            "targetCommand": "speckit.git.initialize",
+            "optional": false,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          }
+        ],
+        "hookBinding": {
+          "phase": "before_constitution",
+          "targetCommand": "speckit.git.initialize",
+          "optional": false,
+          "extensionId": "git",
+          "manifestPath": ".specify/extensions/git/extension.yml"
+        },
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "commands/speckit.git.feature",
+        "kind": "hook",
+        "stack": [
+          {
+            "layer": "extension",
+            "presetId": "git",
+            "presetName": "git",
+            "strategy": "replace",
+            "version": null,
+            "active": true
+          }
+        ],
+        "hookBindings": [
+          {
+            "phase": "before_specify",
+            "targetCommand": "speckit.git.feature",
+            "optional": false,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          }
+        ],
+        "hookBinding": {
+          "phase": "before_specify",
+          "targetCommand": "speckit.git.feature",
+          "optional": false,
+          "extensionId": "git",
+          "manifestPath": ".specify/extensions/git/extension.yml"
+        },
+        "effectiveBaseIdx": 0
+      },
+      {
+        "id": "commands/speckit.git.commit",
+        "kind": "hook",
+        "stack": [
+          {
+            "layer": "extension",
+            "presetId": "git",
+            "presetName": "git",
+            "strategy": "replace",
+            "version": null,
+            "active": true
+          }
+        ],
+        "hookBindings": [
+          {
+            "phase": "before_clarify",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "before_plan",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "before_tasks",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "before_implement",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "before_checklist",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "before_analyze",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "before_taskstoissues",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "after_constitution",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "after_specify",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "after_clarify",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "after_plan",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "after_tasks",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "after_implement",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "after_checklist",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "after_analyze",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          },
+          {
+            "phase": "after_taskstoissues",
+            "targetCommand": "speckit.git.commit",
+            "optional": true,
+            "extensionId": "git",
+            "manifestPath": ".specify/extensions/git/extension.yml"
+          }
+        ],
+        "hookBinding": {
+          "phase": "before_clarify",
+          "targetCommand": "speckit.git.commit",
+          "optional": true,
+          "extensionId": "git",
+          "manifestPath": ".specify/extensions/git/extension.yml"
+        },
+        "effectiveBaseIdx": 0
+      }
+    ],
+    "refreshedAt": "2026-11-22T20:03:05.558Z",
+    "inferredPipeline": {
+      "shape": "augmented-canonical",
+      "pipeline": [
+        "commands/speckit.constitution",
+        "commands/speckit.specify",
+        "commands/speckit.clarify",
+        "commands/speckit.plan",
+        "commands/speckit.tasks",
+        "commands/speckit.taskstoissues",
+        "commands/speckit.analyze",
+        "commands/speckit.checklist",
+        "commands/speckit.implement"
+      ],
+      "unplaced": [],
+      "rationale": "Synthesized from canonical spine — no new commands and no stack directives detected."
+    },
+    "builtFrom": {
+      "compositionFingerprint": "5d71754c22b5111b653ce7c910924657d393dbce",
+      "catalogChangedAt": "2026-11-22T20:03:05.558Z"
+    }
+  }
+}

@@ -1,11 +1,34 @@
 ---
-name: "speckit-checklist"
-description: "Generate a custom checklist for the current feature based on user requirements."
-compatibility: "Requires spec-kit project structure with .specify/ directory"
+name: speckit-checklist
+description: Generate a custom checklist for the current feature based on user requirements.
+compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: "github-spec-kit"
-  source: "templates/commands/checklist.md"
+  author: github-spec-kit
+  source: preset:copilot-sub-agents
+  version: 1.0.0
 ---
+
+# Speckit Checklist Skill
+
+## Sub-Agent Delegation
+
+When executing this command, delegate independent work to parallel sub-agents to reduce total execution time.
+
+**How to dispatch sub-agents in Copilot:**
+
+- **VS Code**: Use the `runSubagent` tool to spawn each sub-agent in an isolated context.
+- **CLI**: Delegate to a sub-agent process — Copilot CLI automatically manages subsidiary sub-agent execution. You can also target custom agents defined in `.github/agents/` or `~/.copilot/agents/`.
+
+### Feature Context Loading in Parallel
+
+When loading feature context (step 4), dispatch parallel reads:
+
+1. **Sub-agent: Spec analysis** — "Read spec.md at {FEATURE_DIR}/spec.md. Extract requirements, user stories, edge cases, and non-functional attributes relevant to the checklist domain: '{domain}'. Return a structured summary focused on requirement quality signals."
+
+2. **Sub-agent: Plan and tasks analysis** — "Read plan.md and tasks.md at {FEATURE_DIR}/ (if they exist). Extract technical details, dependencies, and implementation tasks relevant to the checklist domain: '{domain}'. Return a structured summary."
+
+Use the consolidated results to generate higher-quality, context-aware checklist items.
+
 
 
 ## Checklist Purpose: "Unit Tests for English"
@@ -84,7 +107,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Execution Steps
 
-1. **Setup**: Run `.specify/scripts/bash/check-prerequisites.sh --json --template checklist-template` from repo root and parse JSON for FEATURE_DIR, AVAILABLE_DOCS list, and TEMPLATE_CONTENT.
+1. **Setup**: Run `.specify/scripts/powershell/check-prerequisites.ps1 -Json -Template checklist-template` from repo root and parse JSON for FEATURE_DIR, AVAILABLE_DOCS list, and TEMPLATE_CONTENT.
    - All file paths must be absolute.
    - For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
 

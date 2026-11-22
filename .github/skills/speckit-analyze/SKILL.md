@@ -1,11 +1,43 @@
 ---
-name: "speckit-analyze"
-description: "Perform a non-destructive cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation."
-compatibility: "Requires spec-kit project structure with .specify/ directory"
+name: speckit-analyze
+description: Perform a non-destructive cross-artifact consistency and quality analysis
+  across spec.md, plan.md, and tasks.md after task generation.
+compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: "github-spec-kit"
-  source: "templates/commands/analyze.md"
+  author: github-spec-kit
+  source: preset:copilot-sub-agents
+  version: 1.0.0
 ---
+
+# Speckit Analyze Skill
+
+## Sub-Agent Delegation
+
+When executing this command, delegate independent work to parallel sub-agents to reduce total execution time.
+
+**How to dispatch sub-agents in Copilot:**
+
+- **VS Code**: Use the `runSubagent` tool to spawn each sub-agent in an isolated context.
+- **CLI**: Delegate to a sub-agent process — Copilot CLI automatically manages subsidiary sub-agent execution. You can also target custom agents defined in `.github/agents/` or `~/.copilot/agents/`.
+
+### Parallel Detection Passes
+
+After loading artifacts and building semantic models, dispatch each detection pass as a **separate sub-agent**. All six passes are independent and can run in parallel:
+
+1. **Sub-agent: Duplication Detection** — "Analyze these artifacts for near-duplicate requirements. Identify lower-quality phrasings for consolidation. Artifacts: {spec summary}, {plan summary}, {tasks summary}. Return findings as rows: ID, Severity, Location(s), Summary, Recommendation."
+
+2. **Sub-agent: Ambiguity Detection** — "Flag vague adjectives (fast, scalable, secure, intuitive, robust) lacking measurable criteria and unresolved placeholders (TODO, TKTK, ???). Artifacts: {spec summary}, {plan summary}, {tasks summary}. Return findings as rows."
+
+3. **Sub-agent: Underspecification** — "Find requirements with verbs but missing objects or measurable outcomes, user stories missing acceptance criteria, and tasks referencing undefined components. Artifacts: {spec summary}, {plan summary}, {tasks summary}. Return findings as rows."
+
+4. **Sub-agent: Constitution Alignment** — "Check all requirements and plan elements against constitution principles. Flag any conflicts with MUST principles. Constitution: {constitution content}. Artifacts: {spec summary}, {plan summary}, {tasks summary}. Return findings as rows."
+
+5. **Sub-agent: Coverage Gaps** — "Identify requirements with zero associated tasks, tasks with no mapped requirement/story, and success criteria requiring buildable work not reflected in tasks. Requirements inventory: {inventory}. Task coverage mapping: {mapping}. Return findings as rows."
+
+6. **Sub-agent: Inconsistency** — "Detect terminology drift, data entities referenced in plan but absent in spec (or vice versa), task ordering contradictions, and conflicting requirements. Artifacts: {spec summary}, {plan summary}, {tasks summary}. Return findings as rows."
+
+Collect all sub-agent results, assign severities, and merge into the unified analysis report. Cap at 50 total findings.
+
 
 
 ## User Input
@@ -54,7 +86,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Goal
 
-Identify inconsistencies, duplications, ambiguities, and underspecified items across the three core artifacts (`spec.md`, `plan.md`, `tasks.md`) before implementation. This command MUST run only after `/speckit-tasks` has successfully produced a complete `tasks.md`.
+Identify inconsistencies, duplications, ambiguities, and underspecified items across the three core artifacts (`spec.md`, `plan.md`, `tasks.md`) before implementation. When `data-model.md` exists, also check constrained-field task citations and constraint consistency against it. This command MUST run only after `/speckit-tasks` has successfully produced a complete `tasks.md`.
 
 ## Operating Constraints
 
@@ -66,11 +98,12 @@ Identify inconsistencies, duplications, ambiguities, and underspecified items ac
 
 ### 1. Initialize Analysis Context
 
-Run `.specify/scripts/bash/check-prerequisites.sh --json --require-spec --require-tasks --include-tasks` once from repo root and parse JSON for FEATURE_DIR and AVAILABLE_DOCS. Derive absolute paths:
+Run `.specify/scripts/powershell/check-prerequisites.ps1 -Json -RequireSpec -RequireTasks -IncludeTasks` once from repo root and parse JSON for FEATURE_DIR and AVAILABLE_DOCS. Derive absolute paths:
 
 - SPEC = FEATURE_DIR/spec.md
 - PLAN = FEATURE_DIR/plan.md
 - TASKS = FEATURE_DIR/tasks.md
+- DATA_MODEL = FEATURE_DIR/data-model.md (optional)
 
 Abort with an error message if any required file is missing (instruct the user to run missing prerequisite command).
 For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
@@ -102,6 +135,11 @@ Load only the minimal necessary context from each artifact:
 - Parallel markers [P]
 - Referenced file paths
 
+**From data-model.md (if present):**
+
+- Entity and exact field names, canonical source locations, and explicit constraints (max/min length, nullable/required, enum values, validation rules), including constraints encoded in field types
+- If absent or no constrained fields exist, constrained-field checks are not applicable; do not invent fields or constraints or fail analysis for the missing optional document
+
 **From constitution:**
 
 - Load `.specify/memory/constitution.md` for principle validation
@@ -113,6 +151,8 @@ Create internal representations (do not include raw artifacts in output):
 - **Requirements inventory**: For each Functional Requirement (FR-###) and Success Criterion (SC-###), record a stable key. Use the explicit FR-/SC- identifier as the primary key when present, and optionally also derive an imperative-phrase slug for readability (e.g., "User can upload file" → `user-can-upload-file`). Include only Success Criteria items that require buildable work (e.g., load-testing infrastructure, security audit tooling), and exclude post-launch outcome metrics and business KPIs (e.g., "Reduce support tickets by 50%").
 - **User story/action inventory**: Discrete user actions with acceptance criteria
 - **Task coverage mapping**: Map each task to one or more requirements or stories (inference by keyword / explicit reference patterns like IDs or key phrases)
+- **Constrained-field inventory** (when applicable): Record each canonical `Entity.field`, its constraints, and its location in data-model.md; keep identically named fields on different entities distinct
+- **Field citation mapping** (when applicable): Map explicit data-model.md references with exact `Entity.field` identities to implementing task IDs and task locations; retain unresolved references and task-stated constraints for the detection passes
 - **Constitution rule set**: Extract principle names and MUST/SHOULD normative statements
 
 ### 4. Detection Passes (Token-Efficient Analysis)
@@ -145,6 +185,9 @@ Focus on high-signal findings. Limit to 50 findings total; aggregate remainder i
 - Requirements with zero associated tasks
 - Tasks with no mapped requirement/story
 - Success Criteria requiring buildable work (performance, security, availability) not reflected in tasks
+- Each constrained field without an explicit `data-model.md` + `Entity.field` citation in at least one implementing task. Generic document/entity references, bare field names, and test-only references do not count; a shared implementing task may cite multiple fields, including fields implemented before later stories
+- Require an explicit association between each cited field and its canonical definition. Mere co-occurrence of a document reference and a field mention is not a citation; for example, task prose setting `Request.SuspendReason` to 500 is not a citation just because the task cites data-model.md for `Request.Remark`
+- Report unresolved field citations with their task IDs and locations; they must not be guessed as aliases or counted as coverage for another field. Also report any canonical field left uncovered
 
 #### F. Inconsistency
 
@@ -152,13 +195,15 @@ Focus on high-signal findings. Limit to 50 findings total; aggregate remainder i
 - Data entities referenced in plan but absent in spec (or vice versa)
 - Task ordering contradictions (e.g., integration tasks before foundational setup tasks without dependency note)
 - Conflicting requirements (e.g., one requires Next.js while other specifies Vue)
+- Task-stated field constraints that contradict data-model.md, even when a valid citation is present. Compare any clearly identified field's task prose even when its citation is missing; check length, nullable/required status, enum values, and validation rules
+- For each field mismatch, identify the exact `Entity.field`, task ID, canonical and task-stated restrictions, and both source locations. Do not flag citation-only tasks or semantically matching paraphrases for omitting/rewording constraint values. Do not invent canonical values when the source restriction is unclear; use the existing ambiguity/underspecification passes for unclear definitions
 
 ### 5. Severity Assignment
 
 Use this heuristic to prioritize findings:
 
 - **CRITICAL**: Violates constitution MUST, missing core spec artifact, or requirement with zero coverage that blocks baseline functionality
-- **HIGH**: Duplicate or conflicting requirement, ambiguous security/performance attribute, untestable acceptance criterion
+- **HIGH**: Duplicate or conflicting requirement, ambiguous security/performance attribute, untestable acceptance criterion, missing/unresolved constrained-field citations (Coverage), or contradictory task constraints (Inconsistency); retain CRITICAL escalation above
 - **MEDIUM**: Terminology drift, missing non-functional task coverage, underspecified edge case
 - **LOW**: Style/wording improvements, minor redundancy not affecting execution order
 
@@ -178,6 +223,13 @@ Output a Markdown report (no file writes) with the following structure:
 
 | Requirement Key | Has Task? | Task IDs | Notes |
 |-----------------|-----------|----------|-------|
+
+**Constrained-Field Coverage (when applicable):**
+
+| Field (`Entity.field`) | Canonical Location | Implementing Task IDs | Coverage / Consistency Notes |
+|------------------------|--------------------|-----------------------|------------------------------|
+
+Use the existing finding table for field findings, including source locations and actionable recommendations. Field findings share the 50-finding limit and overflow summary; do not change the existing requirement coverage denominator or FR/SC coverage table semantics.
 
 **Constitution Alignment Issues:** (if any)
 

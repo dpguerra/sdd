@@ -1,487 +1,1000 @@
-<!--
-Sync Impact Report
-Version change: 4.0.0 → 5.0.0
-Modified principles: I–XI, XIII–XV, XIX.
-Added principles: XXIV–XXXIV.
-Added sections: Documentação Operacional Obrigatória.
-Modified sections: Stack e Arquitetura; Qualidade e Convenções de Contribuição; Governance.
-Removed sections: None.
-Follow-up TODOs: Confirm the original ratification date.
--->
-
-# Constituição de Engenharia de MCPs para OpenClaw
-
-## Core Principles
-
-### I. Regras de Negócio Testáveis
-Toda regra de negócio MUST possuir pelo menos um teste unitário que verifique seu
-comportamento esperado e casos-limite relevantes. Alterações em regras de negócio MUST
-atualizar ou acrescentar os testes correspondentes.
-
-### II. Integração de Todas as Capabilities
-Cada Tool MCP MUST possuir pelo menos um teste de integração que valide sua entrada,
-saída e comportamento observável por meio da interface MCP. Os testes MUST cobrir os
-contratos relevantes com dependências externas, providers, repositórios, persistência e
-adaptadores usados pela Tool. Resources e Prompts externos MUST possuir testes
-equivalentes de descoberta, exposição e consumo.
-
-### III. Intelligence Budget
-Cada capability MUST retornar somente as informações necessárias para atender à
-solicitação, com saída concisa, estruturada e sem duplicação desnecessária. Quando
-aplicável, MUST oferecer filtros, limites ou paginação para evitar respostas excessivas e
-preservar o orçamento de contexto, decisões e tokens do agente consumidor.
-
-### IV. Cache Local Não Autoritativo
-Informações recuperadas de uma fonte externa e armazenadas em cache local MUST ser
-tratadas como cache, nunca como fonte autoritativa. A lógica de negócio MUST acessar o
-cache por abstrações de infraestrutura, sem dependência direta de sua implementação. O
-uso do cache MUST preservar a possibilidade de obter dados atualizados da fonte conforme
-as regras de negócio, validade, proveniência e freshness dos dados.
-
-### V. Contratos MCP Orientados ao Consumidor
-Tools, Resources, Prompts e seus contratos MUST ser projetados para uso previsível por
-OpenClaw e demais clientes MCP compatíveis, com nomes, descrições, parâmetros,
-resultados e erros claros. Mudanças incompatíveis MUST ser explicitadas, versionadas e
-acompanhadas dos ajustes de integração necessários.
-
-### VI. Tool Design First
-Toda Tool MCP MUST realizar uma única responsabilidade de negócio claramente
-identificável. Tools genéricas ou multifuncionais SHOULD ser divididas em operações
-menores, previsíveis e composáveis para maximizar a capacidade de planejamento do
-agente consumidor.
-
-### VII. Determinismo de Resposta
-Toda capability MUST produzir estrutura consistente e validável para sucesso, ausência de
-resultado e erro. Variações dependentes de transporte MUST NOT alterar a semântica
-funcional do contrato.
-
-### VIII. MCP Resource First
-Informações predominantemente consultivas SHOULD ser expostas como MCP Resources sempre
-que possível. Tools MUST ser reservadas para operações parametrizadas, cálculos,
-transições de estado ou ações. Prompts MUST ser reservados para estratégias reutilizáveis
-que não possam ser expressas como código determinístico.
-
-### IX. Observabilidade sem Vazamento de Dados
-Logs MUST registrar metadados operacionais, identificadores de correlação, duração,
-resultado, código de erro, provider, transporte e versão do contrato. Payloads completos e
-parâmetros sensíveis MUST NOT ser registrados por padrão. A observabilidade MUST utilizar
-allowlist de campos seguros, redaction centralizada e correlação por `requestId`, `runId`,
-`sessionId` e `checkpointId`, quando aplicáveis.
-
-### X. Segurança e Limitação de Escopo
-Toda capability MUST expor apenas os dados necessários para a tarefa solicitada. Dados
-internos, segredos, credenciais e informações sensíveis MUST NOT ser retornados ao modelo
-ou registrados indevidamente. O fato de uma fonte ser pública MUST NOT justificar acesso
-arbitrário a URLs, ausência de controles contra abuso ou habilitação implícita de
-operações mutáveis.
-
-### XI. Versionamento de Contratos MCP
-Alterações incompatíveis em parâmetros, nomes, schemas, formatos de retorno, códigos de
-erro ou semântica MUST resultar em incremento de versão do contrato MCP e coexistência
-temporária da versão anterior quando tecnicamente viável. Os transportes oficiais MUST
-expor a mesma versão de contrato para a mesma release.
-
-### XII. Política Mensurável de Paginação
-Toda operação potencialmente não limitada MUST implementar paginação por cursor ou limite
-equivalente. O tamanho padrão da página MUST ser definido por domínio e MUST respeitar
-limites de payload, latência e contexto. O servidor MUST limitar `pageSize`, mesmo quando
-o cliente solicitar valor superior. Respostas truncadas MUST indicar `hasMore` e
-`nextCursor`. Paginação por cursor SHOULD ser preferida quando os dados puderem mudar
-durante a leitura.
-
-### XIII. Princípio de Idempotência
-Tools de leitura MUST ser idempotentes. Tools mutáveis SHOULD ser idempotentes sempre
-que possível e MUST declarar chave de idempotência ou estratégia equivalente quando
-repetição puder causar efeitos indevidos.
-
-### XIV. Testes de Consumo pelo Agente
-Toda capability externa MUST possuir testes que validem sua descoberta e utilização por
-um cliente MCP compatível. Os testes MUST utilizar os contratos publicados e MUST NOT
-depender de conhecimento oculto sobre a implementação.
-
-### XV. Evidência por Gate
-Uma implementação MUST NOT ser considerada concluída apenas por compilar ou passar em
-testes unitários. A homologação MUST registrar separadamente os estados de Design, Code,
-Contract, Wiring, Typecheck, Build, Unit Tests, Integration Tests, Regression, Runtime
-stdio, Runtime Streamable HTTP, Parity e Operational. A aprovação de um gate posterior
-MUST NOT se basear exclusivamente em evidência de um gate anterior. Uma capability MCP
-MUST ser considerada homologada somente após chamada real ao artefato empacotado, com
-argumentos literais previstos no contrato e validação do resultado observável.
-
-### XVI. Contratos Autossuficientes e Validados na Fonte
-Toda Tool, Resource e Prompt MCP MUST declarar schemas explícitos e versionáveis para
-entrada e saída. O contrato MUST definir campos obrigatórios e opcionais, enumerações,
-limites, formatos, unidades, semântica de ausência e condições de erro. A validação MUST
-ocorrer na fronteira mais próxima da fonte do dado. O agente consumidor MUST NOT ser
-obrigado a inferir tipos, completar campos ausentes, reconstruir payloads ou interpretar
-texto livre para recuperar estrutura que o MCP poderia produzir deterministicamente.
-Campos de proveniência, estado, timestamp, confiança ou decisão MUST NOT ser inventados
-quando não forem fornecidos ou deterministicamente deriváveis.
-
-### XVII. Persistência Durável e Retomabilidade
-Operações compostas, longas ou sujeitas a interrupção MUST persistir estado suficiente
-para retomada segura, incluindo identificador da execução, versão do contrato, etapa
-atual, etapas concluídas, próximo trabalho elegível, checkpoints, erros terminais e dados
-necessários para evitar repetição indevida. A retomada MUST ocorrer a partir do último
-checkpoint confirmado, nunca pela reconstrução exclusiva do estado a partir da conversa
-do agente. Checkpoints MUST ser persistidos atomicamente; uma interrupção entre
-processamento e persistência MUST NOT produzir avanço parcial apresentado como concluído.
-O agente e a conversa MUST NOT ser tratados como fonte canônica de estado.
-Operações com estado persistido para retomada MUST possuir teste de integração que
-interrompa a execução em um checkpoint, reinicie o processo e retome pelo identificador
-persistido. O teste MUST demonstrar que o trabalho confirmado não foi repetido e que o
-trabalho incompleto não foi marcado como concluído.
-
-### XVIII. Falha Explícita, Retry Controlado e Ausência de Fallback Oculto
-Falhas MUST produzir códigos estruturados e acionáveis. Retry MUST ocorrer somente para
-falhas classificadas como transitórias, com limite de tentativas, atraso controlado,
-idempotência comprovada e registro observável. O MCP MUST NOT executar retry ilimitado,
-trocar silenciosamente de provider, reduzir critérios, omitir filtros, reconstruir
-argumentos ou usar fonte alternativa sem previsão no contrato. Divergências como
-`SCHEMA_MISMATCH`, `TOOL_NOT_FOUND`, `UNKNOWN_CAPABILITY`,
-`AUTHORIZATION_REQUIRED` e `AGENT_CONTRACT_GAP` MUST interromper o gate correspondente.
-
-### XIX. Fronteiras de Responsabilidade
-Cada capability MUST ser implementada na camada de menor variabilidade capaz de
-executá-la corretamente:
-
-- parsing, validação, cálculo, canonicalização, cache, fingerprint, roteamento, transição
-  de estado e seleção de próximo trabalho MUST pertencer ao núcleo MCP;
-- contexto estável, contratos, catálogos, documentação e estado corrente MUST ser
-  expostos como MCP Resources;
-- estratégia cognitiva pequena, estável e reutilizável MUST ser expressa como MCP Prompt;
-- interpretação semântica isolada MUST ocorrer no processamento interno do núcleo, com
-  saída estruturada e validada;
-- decisão dependente do contexto global MUST pertencer ao agente consumidor;
-- ambiguidade residual ou consequência relevante MUST ser encaminhada à decisão humana.
-
-Trabalho determinístico MUST NOT ser transferido ao agente consumidor ou aos adaptadores
-de transporte.
-
-### XX. Capability Design First
-Cada capability MUST ser classificada como Tool, Resource ou Prompt antes da
-implementação. Resources MUST ser usados para leitura de conteúdo estável, identificável
-e endereçável; Tools MUST ser usados para consultas parametrizadas, cálculos, transições
-de estado ou ações; Prompts MUST ser usados para estratégia reutilizável que não possa
-ser expressa como código determinístico. Operações mutáveis MUST ser Tools explícitas e
-MUST NOT ser efeitos colaterais de leitura.
-
-Cada Tool MUST possuir uma responsabilidade de negócio, resultado observável e condição
-clara de conclusão. Tools genéricas como `execute`, `query`, `process` ou `manage`
-SHOULD NOT ser aceitas sem justificativa arquitetural.
-
-### XXI. Proveniência, Autoridade e Freshness
-Resultados derivados de provider, cache, snapshot ou persistência local MUST indicar sua
-origem e condição de atualização quando isso afetar a decisão do consumidor. Quando
-aplicável, o contrato MUST diferenciar fonte autoritativa, cache não autoritativo,
-snapshot histórico, dado calculado, dado indisponível e dado potencialmente desatualizado.
-O uso de cache MUST NOT ser apresentado como consulta bem-sucedida à fonte autoritativa.
-
-### XXII. Mutação Segura e Autorização Explícita
-Operações de diagnóstico, desenvolvimento e homologação MUST utilizar providers e
-credenciais em modo read-only, salvo requisito explícito em contrário. Tools mutáveis
-MUST declarar efeito esperado, recurso afetado, pré-condições, autorização requerida,
-chave de idempotência, possibilidade de dry-run, mecanismo de rollback ou compensação e
-evidência de execução. Uma Tool de leitura MUST NOT produzir efeitos colaterais. Uma
-operação mutável MUST NOT ser executada como fallback de uma operação de consulta.
-
-### XXIII. Build Reproduzível e Cadeia de Suprimentos
-O projeto MUST fixar versões de runtime e dependências por lockfile. Builds de
-homologação MUST ser reproduzíveis e executados a partir de ambiente limpo. Dependências
-MUST ser submetidas a análise de vulnerabilidades e licenças. Imagens de contêiner MUST
-utilizar versões ou digests explícitos e SHOULD executar como usuário não privilegiado.
-O artefato homologado MUST ser identificável por versão e commit.
-
-### XXIV. Estratégia Dual de Transportes Oficiais
-O produto MCP MUST oferecer simultaneamente dois transportes oficiais:
-
-- stdio, destinado ao desenvolvimento local, depuração, testes automatizados, testes de
-  contrato e integração com clientes que iniciam o servidor como subprocesso;
-- Streamable HTTP, destinado à homologação e produção, nas quais o MCP é executado como
-  serviço independente e acessado por endpoint HTTP.
-
-Os dois transportes MUST pertencer à mesma base de código, ser distribuídos a partir do
-mesmo commit, versão e artefato e expor capabilities funcionalmente equivalentes. stdio
-MUST NOT ser utilizado como mecanismo de publicação em homologação ou produção.
-Streamable HTTP MUST ser exercitado e homologado antes da promoção para produção.
-
-### XXV. Núcleo MCP Único e Independente de Transporte
-Tools, Resources, Prompts, schemas, providers, regras de negócio, persistência e políticas
-de validação MUST pertencer a um núcleo independente de transporte. Os adaptadores stdio
-e Streamable HTTP MUST ser finos e responsáveis somente por inicialização, conexão, ciclo
-de vida, controle de sessão, cancelamento e entrega das mensagens MCP.
-
-É proibido:
-
-- duplicar implementação de Tools, Resources ou Prompts por transporte;
-- introduzir regras de negócio nos adaptadores stdio ou HTTP;
-- manter contratos diferentes para a mesma capability;
-- aplicar uma correção funcional somente a um transporte;
-- acoplar providers ou persistência ao ciclo de vida de um transporte específico;
-- criar divergência semântica de validação, erro ou efeito persistente entre transportes.
-
-### XXVI. EntryPoints Explícitos e Independentes
-O projeto MUST disponibilizar entrypoints independentes para stdio e Streamable HTTP. A
-seleção do transporte MUST ocorrer por comando explícito, entrypoint dedicado ou
-configuração validada, sem autodetecção ambígua.
-
-São exemplos conformes:
-
-- `npm run start:stdio`;
-- `npm run start:http`;
-- `node dist/stdio.js`;
-- `node dist/http.js`.
-
-O mesmo artefato MAY conter os dois entrypoints, mas cada processo MUST iniciar apenas o
-transporte explicitamente selecionado. Um processo MUST NOT iniciar simultaneamente
-stdio e Streamable HTTP por efeito colateral ou autodetecção.
-
-### XXVII. Isolamento de Ciclo de Vida, Processo e Sessão
-Embora os dois transportes sejam suportados pelo mesmo produto, eles MUST NOT
-compartilhar a mesma instância ativa de McpServer. Cada processo, conexão ou sessão MUST
-criar sua própria instância MCP conforme o modelo exigido pelo SDK adotado.
-
-O encerramento de stdin MUST NOT afetar uma instância HTTP. Falhas, sessões,
-cancelamentos, notificações ou buffers HTTP MUST NOT interferir na execução stdio.
-Componentes stateless, pools, caches controlados e repositórios persistentes MAY ser
-compartilhados somente quando forem seguros para concorrência e não carregarem contexto
-de sessão ou transporte.
-
-### XXVIII. Paridade Funcional entre Transportes
-Toda Tool, Resource ou Prompt destinada a uso externo MUST estar disponível em stdio e
-Streamable HTTP, salvo exceção explicitamente documentada, justificada e aprovada por
-decisão arquitetural.
-
-A pipeline MUST possuir gate automatizado de paridade que valide, no mínimo:
-
-- nomes das capabilities expostas;
-- schemas de entrada;
-- schemas de saída;
-- códigos e envelopes de erro;
-- validações;
-- efeitos persistentes;
-- comportamento de cancelamento;
-- versão do protocolo e capabilities declaradas;
-- resultados de um conjunto determinístico de chamadas.
-
-Compilação bem-sucedida MUST NOT ser aceita como prova de paridade, wiring ou exposição
-efetiva.
-
-### XXIX. Estratégia de Transporte por Ambiente
-A estratégia padrão MUST ser:
-
-- desenvolvimento: stdio;
-- testes locais e testes de contrato: stdio, complementados por testes Streamable HTTP;
-- homologação: Streamable HTTP;
-- produção: Streamable HTTP.
-
-A aprovação de testes exclusivamente por stdio MUST NOT homologar uma release destinada
-a HTTP. O artefato MUST ser exercitado por Streamable HTTP em ambiente equivalente à
-produção antes da promoção.
-
-### XXX. Requisitos Mínimos do Streamable HTTP
-O transporte Streamable HTTP MUST implementar, mesmo quando autenticação estiver
-temporariamente fora do escopo:
-
-- endpoint MCP explícito, preferencialmente `/mcp`;
-- validação dos métodos HTTP permitidos e do Content-Type;
-- validação estrita de Origin por allowlist;
-- limite configurável de tamanho de requisição;
-- timeout de conexão e de execução;
-- limite de concorrência;
-- rate limiting ou proteção equivalente contra abuso;
-- validação estrita dos schemas;
-- allowlist dos hosts acessados pelos providers;
-- proteção contra SSRF;
-- tratamento controlado de redirecionamentos, com limite e revalidação do destino;
-- IDs de correlação;
-- logs estruturados sem conteúdo sensível;
-- graceful shutdown;
-- health check e readiness check separados do endpoint MCP.
-
-A ausência temporária de autenticação MUST ser registrada em ADR, com escopo, riscos,
-controles compensatórios, responsável e condição para revisão. Fonte pública MUST NOT
-autorizar Tool mutável, proxy genérico, acesso arbitrário a URL ou remoção de controles
-contra abuso.
-
-### XXXI. Disciplina do stdio
-No transporte stdio:
-
-- stdout MUST conter exclusivamente mensagens MCP válidas;
-- logs, diagnósticos e mensagens operacionais MUST ser enviados para stderr;
-- banners, mensagens de inicialização e logs MUST NOT contaminar stdout;
-- o processo MUST responder corretamente ao encerramento de stdin e aos sinais de término;
-- testes MUST detectar qualquer escrita inválida em stdout;
-- falhas de inicialização MUST ser reportadas em stderr e por exit code não zero, sem
-  emissão de payload MCP inválido.
-
-### XXXII. Configuração Fail-Closed
-Toda configuração MUST ser validada antes da inicialização do transporte e do anúncio de
-readiness. Para Streamable HTTP, MUST ser validado no mínimo:
-
-- host de bind;
-- porta;
-- caminho do endpoint MCP;
-- timeouts;
-- limite de payload;
-- limite de concorrência;
-- política e allowlist de Origin;
-- allowlist de hosts dos providers;
-- política de redirecionamento;
-- parâmetros de rate limiting ou proteção equivalente.
-
-Configuração ausente, inválida ou insegura MUST causar falha explícita de inicialização.
-O projeto MUST NOT utilizar defaults silenciosos que exponham o servidor em interfaces
-de rede não pretendidas. Bind em interfaces não locais, como `0.0.0.0` ou `::`, MUST
-exigir configuração explícita adequada ao ambiente.
-
-### XXXIII. Gates Obrigatórios de Transporte e Homologação
-A pipeline de qualidade e entrega MUST implementar os seguintes gates:
-
-**Gate A — Build e análise estática**
-
-- build;
-- typecheck;
-- lint;
-- validação dos schemas.
-
-**Gate B — Contrato do núcleo**
-
-- Tools, Resources e Prompts registrados, quando aplicáveis;
-- schemas de entrada e saída;
-- erros determinísticos;
-- providers e persistência corretamente conectados;
-- ausência de regras de negócio nos adaptadores de transporte.
-
-**Gate C — Runtime stdio**
-
-- initialize;
-- tools/list;
-- resources/list, quando aplicável;
-- prompts/list, quando aplicável;
-- tools/call;
-- cancelamento;
-- encerramento limpo;
-- ausência de logs ou conteúdo inválido em stdout.
-
-**Gate D — Runtime Streamable HTTP**
-
-- inicialização do serviço;
-- health e readiness;
-- initialize pelo endpoint MCP;
-- tools/list;
-- resources/list, quando aplicável;
-- prompts/list, quando aplicável;
-- tools/call;
-- sessões, quando habilitadas;
-- cancelamento;
-- limites de payload, concorrência e timeout;
-- Origin permitido e rejeitado;
-- proteção contra SSRF e redirecionamentos indevidos;
-- encerramento controlado.
-
-**Gate E — Paridade**
-
-- comparação automatizada das capabilities e schemas expostos por stdio e Streamable HTTP;
-- comparação dos códigos e envelopes de erro;
-- comparação de resultados para conjunto determinístico de chamadas;
-- comprovação de que os dois transportes utilizam o mesmo núcleo funcional.
-
-**Gate F — Homologação**
-
-- execução do artefato empacotado, não apenas do código-fonte;
-- execução por Streamable HTTP em ambiente equivalente à produção;
-- coleta de evidências, logs, versões, comandos, exit codes e resultados;
-- promoção somente após aprovação de todos os gates aplicáveis.
-
-Falha em qualquer gate MUST impedir a promoção até correção ou exceção formalmente
-aprovada e registrada.
-
-### XXXIV. Empacotamento e Operação Consistentes
-A distribuição MUST permitir iniciar stdio e Streamable HTTP a partir do mesmo commit,
-versão e artefato. A imagem homologada MUST ser a mesma promovida para produção.
-Alterações de comportamento entre ambientes MUST ocorrer apenas por configuração
-validada, nunca por recompilação não rastreada ou alteração manual do artefato.
-
-O processo HTTP MUST executar sem privilégios administrativos, ser compatível com
-contêiner, expor sinais apropriados para liveness, readiness e graceful shutdown e
-preservar correlação observável durante o encerramento. Os entrypoints MUST compartilhar
-o núcleo e os contratos, mas MUST manter ciclos de vida independentes.
-
-## Stack e Arquitetura
-
-O projeto MUST utilizar TypeScript para o código da aplicação. A arquitetura MUST
-separar explicitamente:
-
-- núcleo MCP independente de transporte;
-- factories de McpServer e registro de capabilities;
-- adaptador e entrypoint stdio;
-- adaptador e entrypoint Streamable HTTP;
-- providers e adaptadores externos;
-- abstrações de persistência e cache;
-- configuração validada;
-- observabilidade compartilhada sem estado de sessão.
-
-O cache local MUST ser acessado por abstrações de infraestrutura. MongoDB é a
-implementação padrão atual do cache; a lógica de negócio MUST NOT depender diretamente
-de MongoDB nem de um transporte específico. Docker MUST ser utilizado para executar
-MongoDB e os demais sistemas de apoio necessários ao desenvolvimento, testes,
-homologação ou execução.
-
-Builds de homologação MUST executar instalação reproduzível por lockfile, typecheck,
-lint, build limpo, testes, auditoria de dependências e varredura de secrets. MUST ser
-gerada uma SBOM, preferencialmente em CycloneDX ou SPDX. Imagens de contêiner MUST ser
-analisadas com Trivy, Grype ou ferramenta corporativa equivalente.
-
-## Qualidade e Convenções de Contribuição
-
-O projeto MUST adotar um único framework principal de testes, declarado no plano técnico.
-Para projetos TypeScript, Jest ou o test runner nativo do Node.js MAY ser utilizado
-conforme a baseline do repositório. Toda regra de negócio MUST ser coberta por teste
-unitário e todas as capabilities externas MUST ser cobertas por testes de integração e
-runtime conforme esta Constituição.
-
-O projeto MUST adotar convenção linguística consistente. Identificadores públicos, nomes
-de Tools, Resources, Prompts, schemas e códigos de erro SHOULD utilizar inglês técnico
-quando destinados à interoperabilidade entre clientes e equipes. Documentação e
-mensagens destinadas aos operadores MAY utilizar português. Commits MUST seguir o
-formato `tipo(escopo): descrição [REQ-identificador]`, incluindo o identificador do
-requisito relacionado.
-
-## Documentação Operacional Obrigatória
-
-A documentação do projeto MUST incluir:
-
-- comandos de execução stdio e Streamable HTTP;
-- matriz ambiente versus transporte;
-- variáveis e schemas de configuração;
-- endpoints MCP, health e readiness;
-- política de Origin, payload, timeout, concorrência e rate limiting;
-- allowlist de hosts e política de redirecionamentos dos providers;
-- modelo de sessão e cancelamento;
-- procedimentos de graceful shutdown;
-- definição dos Gates A a F e suas evidências;
-- ADRs de exceções, incluindo eventual ausência temporária de autenticação;
-- instruções de troubleshooting sem uso indevido de stdout em stdio.
-
-## Governance
-
-Esta Constituição prevalece sobre planos, especificações e práticas locais. Se um plano
-contradisser esta Constituição, o plano MUST ser atualizado antes da implementação. Se
-uma mudança exigir alteração desta Constituição, sua alteração MUST ser feita em um
-commit separado das mudanças de implementação.
-
-Alterações nesta Constituição MUST ser revisadas e registradas com a data da emenda.
-A versão MUST seguir SemVer: MAJOR para remoção, redefinição incompatível ou mudança
-estrutural de princípios; MINOR para novos princípios ou expansão material compatível;
-PATCH para esclarecimentos sem mudança semântica. Revisões de especificações, planos e
-mudanças de código MUST verificar conformidade com os princípios, stack, convenções,
-transportes e requisitos de teste aqui definidos.
-
-Exceções MUST ser explícitas, limitadas no tempo, aprovadas e registradas em ADR com
-justificativa, risco, controles compensatórios, responsável e critério de encerramento.
-Nenhuma exceção MAY ser inferida a partir de implementação existente.
-
-**Version**: 5.0.0  
-**Ratified**: TODO(RATIFICATION_DATE): confirmar data original de adoção  
-**Last Amended**: 2026-11-15
+# Enterprise SaaS Platform — Constitution
+
+## Project Overview
+
+An enterprise-grade, multi-tenant SaaS platform optimized for autonomous AI implementation while maintaining strict architectural governance. The system prioritizes modularity, scalability, and maintainability for teams of 20+ engineers.
+
+## Core Architectural Principles
+
+### 1. Architecture Styles
+
+- **Domain Driven Design (DDD)** — Strategic and tactical DDD with bounded contexts
+- **Clean Architecture** — Strict dependency layers with inward-only dependencies
+- **CQRS** — Separated command and query models with independent evolution
+- **Event-Driven Architecture** — Domain events drive business operations
+- **Modular Monolith First** — Explicit bounded contexts, microservices-ready
+- **API First** — RESTful APIs as primary integration mechanism
+- **Cloud Native** — Containerized, orchestration-ready, horizontally scalable
+
+### 2. Technology Stack
+
+**Runtime & Language:**
+- Node.js 22+
+- TypeScript 5+ (strict mode mandatory)
+
+**Web Framework:**
+- NestJS with Fastify Adapter
+
+**Data & Persistence:**
+- PostgreSQL (primary data store)
+- Prisma ORM (abstraction layer)
+- Redis (caching, sessions, rate limiting)
+
+**Messaging & Events:**
+- RabbitMQ or Kafka (integration events)
+- Outbox Pattern (transaction guarantee)
+
+**Observability:**
+- OpenTelemetry (distributed tracing)
+- Structured Logging
+- Correlation/Trace IDs
+
+**Infrastructure:**
+- Docker (containerization)
+- Kubernetes Ready
+- Environment-based configuration
+
+## Clean Architecture Layers
+
+### Layer Hierarchy
+
+```
+┌─────────────────────────────────────┐
+│      Infrastructure                 │
+│  (Prisma, Redis, NestJS, Fastify)   │
+├─────────────────────────────────────┤
+│      Presentation                   │
+│  (Controllers, Interceptors, Guards)│
+├─────────────────────────────────────┤
+│      Application                    │
+│  (Use Cases, Commands, Queries)     │
+├─────────────────────────────────────┤
+│      Domain (Pure TypeScript)       │
+│  (Entities, Aggregates, Services)   │
+└─────────────────────────────────────┘
+```
+
+### Dependency Rules
+
+**Mandatory:**
+- Dependencies point ONLY inward
+- Higher layers depend on lower layers
+- No circular dependencies permitted
+
+**Domain Layer Prohibitions:**
+Domain code MUST NOT depend on:
+- NestJS or Fastify frameworks
+- Prisma ORM
+- PostgreSQL or Redis clients
+- Message brokers (RabbitMQ/Kafka)
+- External SDKs
+- Third-party frameworks
+
+**Domain Excellence:**
+- Pure TypeScript (platform-agnostic)
+- Business logic isolated
+- Framework-agnostic entity definitions
+- Testable without infrastructure
+
+## Domain Driven Design
+
+### Strategic DDD
+
+**Bounded Contexts** (Initial Set):
+1. **Tenant Context** — Multi-tenancy model, tenant isolation, tenant hierarchy
+2. **Identity & Access Context** — Users, roles, permissions, JWT/refresh tokens
+3. **Subscription Context** — Plans, subscriptions, lifecycle, renewals
+4. **Billing & Payments Context** — Invoices, payments, refunds, tax calculation
+5. **Audit Context** — Audit trails, compliance, change tracking
+
+**Ubiquitous Language:**
+- Establish glossaries for each bounded context
+- Document strategic domain concepts
+- Align terminology across teams
+
+### Tactical DDD
+
+**Required Concepts:**
+
+| Concept | Purpose | Location |
+|---------|---------|----------|
+| **Aggregate** | Consistency boundary, invariants | Domain |
+| **Entity** | Business-critical identity | Domain |
+| **Value Object** | Immutable concept without identity | Domain |
+| **Domain Service** | Cross-aggregate business logic | Domain |
+| **Repository** | Persistence abstraction | Infrastructure |
+| **Domain Event** | Business occurrence notification | Domain |
+| **Factory** | Complex aggregate construction | Domain/Application |
+| **Specification** | Query predicate encapsulation | Infrastructure |
+
+**Example Domain Model:**
+
+```typescript
+// Value Objects (immutable, no identity)
+class TenantId extends BrandedType<'TenantId', string> {}
+class UserId extends BrandedType<'UserId', string> {}
+class Email extends ValueObject<{ value: string }> {}
+class Money extends ValueObject<{ amount: Decimal; currency: string }> {}
+
+// Entities (identity, mutable)
+class User implements Entity {
+  id: UserId;
+  email: Email;
+  tenantId: TenantId;
+  roles: Set<Role>;
+}
+
+// Aggregates (consistency boundary)
+class Subscription implements Aggregate {
+  id: SubscriptionId;
+  tenantId: TenantId;
+  userId: UserId;
+  plan: Plan;
+  status: SubscriptionStatus;
+  
+  activate(): void { /* business logic */ }
+  cancel(): void { /* domain events */ }
+}
+
+// Domain Events
+class SubscriptionActivatedEvent implements DomainEvent {
+  id: EventId;
+  aggregateId: SubscriptionId;
+  timestamp: Date;
+  tenantId: TenantId;
+}
+
+// Domain Services (stateless, cross-aggregate)
+class SubscriptionService {
+  activate(subscription: Subscription): void {}
+  renew(subscription: Subscription): void {}
+}
+
+// Repositories (Infrastructure, not Domain)
+interface SubscriptionRepository {
+  save(subscription: Subscription): Promise<void>;
+  findById(id: SubscriptionId): Promise<Subscription | null>;
+}
+```
+
+**Anti-Patterns to Avoid:**
+- Primitive Obsession (use Value Objects)
+- Anemic Domain Models (models without behavior)
+- Domain logic in repositories or use cases
+- Unnecessary DDD complexity for simple CRUD
+
+## CQRS (Command Query Responsibility Segregation)
+
+### Separation of Concerns
+
+**Command Model** — Write operations, state changes:
+```
+Command → Validation → Handler → Repository → Domain → Event
+```
+
+**Query Model** — Read operations, projections:
+```
+Query → Handler → Projection → ReadModel/Database
+```
+
+### Application Layer Structure
+
+```
+Application/
+├── Commands/
+│   ├── CreateTenantCommand.ts
+│   ├── ActivateSubscriptionCommand.ts
+│   └── CreateUserCommand.ts
+├── Queries/
+│   ├── GetTenantQuery.ts
+│   ├── ListInvoicesQuery.ts
+│   └── GetUserQuery.ts
+├── Handlers/
+│   ├── CreateTenantHandler.ts
+│   └── GetTenantHandler.ts
+├── DTOs/
+│   ├── CreateTenantDTO.ts
+│   └── TenantResponseDTO.ts
+├── Services/
+│   ├── TenantApplicationService.ts
+│   └── SubscriptionApplicationService.ts
+└── Events/
+    ├── IntegrationEvent.ts
+    └── DomainEventPublisher.ts
+```
+
+### CQRS Benefits
+
+1. **Independent Scaling** — Read and write models scale separately
+2. **Optimization** — Each model optimized for its use case
+3. **Auditability** — Command audit trail explicit
+4. **Eventually Consistent** — Acceptable denormalization
+
+### Read Model Synchronization
+
+- **Outbox Pattern** — Atomically persist events and read-model updates
+- **Event Handlers** — Asynchronous projection builders
+- **Eventual Consistency** — Clients accept short delays
+
+## Multi-Tenancy
+
+### Fundamental Rules
+
+**Mandatory:**
+- Every business operation executes within a tenant context
+- Tenant data leakage is strictly forbidden
+- Tenant isolation is enforced at every layer
+
+### Tenant Isolation Mechanisms
+
+| Layer | Mechanism | Example |
+|-------|-----------|---------|
+| **API** | Tenant middleware resolver | Extract from JWT, subdomain, header |
+| **Database** | Tenant-aware queries | WHERE tenant_id = $1 |
+| **Application** | Tenant context injection | TenantContext in request scope |
+| **Authorization** | Tenant-based rules | RBAC within tenant boundary |
+
+### Multi-Tenant Entities
+
+**Tenant-Scoped** (must have tenant_id):
+- User
+- Subscription
+- Invoice
+- Workspace
+- Audit Log
+
+**Global Entities** (shared across tenants, explicitly marked):
+- Plan (shared SaaS plans)
+- Feature (shared feature catalog)
+- Locale/Region (reference data)
+
+### Implementation Pattern
+
+```typescript
+// Middleware: Resolve tenant from request
+@Injectable()
+class TenantMiddleware implements NestMiddleware {
+  use(req: Request, res: Response, next: NextFunction) {
+    const tenantId = extractTenantId(req); // JWT, subdomain, header
+    TenantContext.setTenantId(tenantId);
+    next();
+  }
+}
+
+// Repository: Enforce tenant isolation
+@Injectable()
+class UserRepository {
+  async findById(userId: UserId): Promise<User | null> {
+    const tenantId = TenantContext.getTenantId();
+    return this.prisma.user.findUnique({
+      where: { id: userId, tenantId }, // ALWAYS filter by tenant
+    });
+  }
+}
+
+// Guard: Validate tenant authorization
+@UseGuards(TenantGuard)
+@Controller('api/invoices')
+class InvoiceController {
+  constructor(private query: GetInvoiceQuery) {}
+  
+  @Get(':id')
+  async getInvoice(@Param('id') invoiceId: string) {
+    // Guard ensures user belongs to request tenant
+    return this.query.execute(invoiceId);
+  }
+}
+```
+
+## Authentication & Authorization
+
+### Authentication
+
+**Strategy:** JWT with Refresh Tokens
+
+```typescript
+// Access Token (short-lived, 15min)
+{
+  sub: "user_123",
+  tenant: "tenant_456",
+  roles: ["admin"],
+  iat: timestamp,
+  exp: timestamp + 15min
+}
+
+// Refresh Token (long-lived, 7 days, stored in httpOnly cookie)
+{
+  sub: "user_123",
+  tenant: "tenant_456",
+  type: "refresh",
+  iat: timestamp,
+  exp: timestamp + 7days
+}
+```
+
+### Authorization
+
+**Current:** Role-Based Access Control (RBAC)
+- Tenant Admin
+- Tenant User
+- Billing Manager
+- Read-Only User
+
+**Future Extensions:**
+- Attribute-Based Access Control (ABAC)
+- Single Sign-On (SSO)
+- OpenID Connect (OIDC)
+- SAML 2.0
+
+**Rules:**
+- Authorization logic lives in Guards, not Controllers
+- Controllers delegate to Guards
+- Use Decorators for declarative authorization
+- Fail-secure: deny by default
+
+```typescript
+@UseGuards(AuthGuard, BillingGuard)
+@Controller('api/invoices')
+class InvoiceController {
+  @Post()
+  @Roles('tenant:admin', 'billing:manager')
+  async createInvoice(@Body() dto: CreateInvoiceDTO) {
+    return this.command.execute(dto);
+  }
+}
+```
+
+## Event-Driven Architecture
+
+### Domain Events
+
+**Definition:** Immutable records of significant business occurrences
+
+**Mandatory Characteristics:**
+- Immutable
+- Timestamped
+- Correlated with aggregate ID
+- Correlated with tenant ID
+- Carry minimal data (reference IDs, not full entities)
+
+**Domain Event Catalog** (Initial):
+
+| Event | Context | Payload |
+|-------|---------|---------|
+| TenantCreatedEvent | Tenant | tenantId, name |
+| UserCreatedEvent | Identity | userId, tenantId, email |
+| SubscriptionActivatedEvent | Subscription | subscriptionId, tenantId, planId |
+| PaymentApprovedEvent | Billing | paymentId, invoiceId, amount |
+| InvoiceGeneratedEvent | Billing | invoiceId, tenantId, amount |
+
+### Integration Events
+
+**Definition:** Events published to external systems via message broker
+
+**Message Broker:** RabbitMQ or Kafka
+- Topics/Exchanges per bounded context
+- Schema versioning
+- Idempotent consumers
+- Dead-letter queues
+
+### Outbox Pattern
+
+**Problem:** Atomicity of domain event persistence and business operation
+
+**Solution:** Write domain events and aggregates in single transaction
+
+```
+1. Begin transaction
+2. Modify aggregate (Subscription)
+3. Insert into Outbox table (SubscriptionActivatedEvent)
+4. Commit transaction
+5. Event handler polls Outbox
+6. Publishes to message broker
+7. Marks event as published
+```
+
+**Benefits:**
+- No lost events
+- Exactly-once semantics
+- Atomic domain operations
+
+## Microservices Readiness
+
+### Design Principles
+
+**Every bounded context should be extractable as a microservice without major refactoring.**
+
+### Microservices Contracts
+
+**Explicit Boundaries:**
+- Context API surface defined
+- Input/Output DTOs versioned
+- Change logs maintained
+
+**Example Contract:**
+
+```typescript
+// @sdd/billing-context-contract
+
+export interface BillingContext {
+  commands: {
+    CreateInvoiceCommand: (payload: CreateInvoicePayload) => Promise<InvoiceId>;
+  };
+  events: {
+    InvoiceGeneratedEvent: DomainEvent;
+    PaymentApprovedEvent: DomainEvent;
+  };
+  queries: {
+    GetInvoiceQuery: (id: InvoiceId) => Promise<Invoice>;
+  };
+}
+```
+
+### Integration Mechanisms
+
+| Mechanism | Use Case | Example |
+|-----------|----------|---------|
+| **Async Events** | Loose coupling, eventual consistency | SubscriptionActivated → SendWelcomeEmail |
+| **Message Broker** | Distributed transactions, outbox pattern | RabbitMQ topic subscriptions |
+| **REST APIs** | Synchronous queries, service-to-service | GET /invoices/:id |
+| **gRPC** (Future) | High-throughput, low-latency internal APIs | Streaming events |
+
+### Idempotency
+
+**Requirement:** All operations must be idempotent
+
+**Implementation:**
+- Idempotency keys in request headers
+- Idempotency cache (Redis)
+- Deduplication in event handlers
+
+```typescript
+@Post('/invoices')
+@Idempotent()
+async createInvoice(@Header('Idempotency-Key') key: string) {
+  // Redis lookup prevents duplicate processing
+  const cached = await this.cache.get(key);
+  if (cached) return cached;
+  
+  const result = await this.command.execute(dto);
+  await this.cache.set(key, result, TTL_1HOUR);
+  return result;
+}
+```
+
+## Observability
+
+### Structured Logging
+
+**Mandatory Fields:**
+- Timestamp (ISO 8601)
+- Log Level (DEBUG, INFO, WARN, ERROR)
+- Logger Name
+- Message
+- Correlation ID (request-scoped)
+- Tenant ID (tenant-scoped)
+- User ID (user-scoped)
+- Context (additional business data)
+
+**Example:**
+```json
+{
+  "timestamp": "2025-11-22T14:30:00Z",
+  "level": "INFO",
+  "logger": "BillingService",
+  "message": "Invoice generated",
+  "correlationId": "req-12345",
+  "tenantId": "tenant-456",
+  "userId": "user-789",
+  "invoiceId": "inv-111",
+  "amount": "1500.00",
+  "currency": "USD"
+}
+```
+
+### Distributed Tracing
+
+**OpenTelemetry Implementation:**
+- Trace ID propagation across services
+- Span creation per operation
+- Baggage for context propagation
+- Resource attributes (service, version, environment)
+
+**Trace Hierarchy:**
+```
+Trace: api-request-12345
+├── Span: POST /api/invoices
+│   ├── Span: ValidateInvoiceCommand
+│   ├── Span: CreateInvoiceHandler
+│   │   ├── Span: Save to Database
+│   │   └── Span: Publish Event
+│   └── Span: HTTP Response
+```
+
+### Metrics
+
+**Golden Signals:**
+- Latency (p50, p95, p99)
+- Traffic (RPS, bytes/sec)
+- Errors (rate, types)
+- Saturation (CPU, memory, DB connections)
+
+**Business Metrics:**
+- Tenant count
+- MRR (Monthly Recurring Revenue)
+- Churn rate
+- Invoice generation rate
+
+## Security
+
+### OWASP ASVS Alignment
+
+**Input Validation:**
+- Whitelist, not blacklist
+- Schema validation (Zod, class-validator)
+- Length/range enforcement
+- Format validation (email, URL, etc.)
+
+**Output Encoding:**
+- Context-aware encoding (HTML, JSON, URL)
+- Prevent XSS
+- Prevent injection attacks
+
+**Secret Management:**
+- Never commit secrets
+- Environment variables for local dev
+- Vault integration for production (HashiCorp Vault, AWS Secrets Manager)
+- Secret rotation policies
+
+**Audit Trail:**
+- Log all sensitive operations
+- Immutable audit logs
+- Retention: 7 years (compliance)
+
+**Encryption:**
+- TLS 1.2+ for all transport
+- AES-256 for sensitive data at rest
+- PII encryption (SSN, credit cards)
+
+**Example:**
+```typescript
+@Post('/payments')
+@UseGuards(AuthGuard)
+class PaymentController {
+  async processPayment(@Body() dto: ProcessPaymentDTO) {
+    // Input validation (DTO validation)
+    // TLS secured transmission
+    // Encrypted storage of sensitive fields
+    // Audit logging
+    // Output encoding (JSON response)
+  }
+}
+```
+
+## Resilience
+
+### Error Handling
+
+**Error Hierarchy:**
+```
+Error (Generic)
+├── ApplicationError (Recoverable)
+│   ├── ValidationError
+│   ├── AuthenticationError
+│   ├── AuthorizationError
+│   └── BusinessRuleError
+├── DomainError (Business rules violated)
+│   ├── InvalidSubscriptionStateError
+│   └── InsufficientCreditsError
+└── InfrastructureError (External dependencies)
+    ├── DatabaseError
+    └── ExternalServiceError
+```
+
+**Usage:**
+```typescript
+class SubscriptionService {
+  activate(subscription: Subscription): void {
+    if (!subscription.canActivate()) {
+      throw new InvalidSubscriptionStateError('Must be in pending state');
+    }
+    
+    if (subscription.isExpired()) {
+      throw new BusinessRuleError('Subscription plan expired');
+    }
+    
+    subscription.activate();
+  }
+}
+```
+
+### Resilience Patterns
+
+| Pattern | Purpose | Implementation |
+|---------|---------|-----------------|
+| **Retry** | Transient failures | Exponential backoff, jitter |
+| **Circuit Breaker** | Cascading failures | Open → Half-Open → Closed |
+| **Timeout** | Stuck requests | Abort after deadline |
+| **Bulkhead** | Resource isolation | Thread/connection pools |
+| **Fallback** | Degraded service | Alternative response |
+
+## Testing Strategy
+
+### Testing Pyramid
+
+```
+         /\
+        /E2E\
+       /-----\
+      /  API  \
+     /---------\
+    / Integration\
+   /--------- ----\
+  /    Unit Tests   \
+ /-------------------\
+```
+
+### Coverage Targets
+
+| Layer | Minimum | Critical |
+|-------|---------|----------|
+| Domain | 85% | 95% |
+| Application | 85% | 95% |
+| Infrastructure | 70% | - |
+| Presentation | 60% | - |
+
+### Test Types
+
+**Unit Tests:**
+- Domain entities, value objects
+- Specifications, domain services
+- Use case handlers
+- Utilities
+
+**Integration Tests:**
+- Repository implementations
+- Application services with real database
+- Event handlers
+- API contracts
+
+**Contract Tests:**
+- Bounded context boundaries
+- Event schemas
+- API response/request formats
+
+**E2E Tests:**
+- Complete user workflows
+- Multi-step transactions
+- Cross-context integration
+
+**Example Test Suite:**
+
+```typescript
+// unit.spec.ts
+describe('SubscriptionAggregate', () => {
+  describe('activate', () => {
+    it('should emit ActivatedEvent when valid', () => {
+      const subscription = new Subscription(...);
+      subscription.activate();
+      expect(subscription.getEvents()).toContain(
+        isInstanceOf(SubscriptionActivatedEvent)
+      );
+    });
+
+    it('should throw InvalidStateError when already active', () => {
+      const subscription = new Subscription(...);
+      subscription.activate();
+      expect(() => subscription.activate()).toThrow(InvalidStateError);
+    });
+  });
+});
+
+// integration.spec.ts
+describe('SubscriptionRepository', () => {
+  it('should persist and retrieve subscription', async () => {
+    const subscription = new Subscription(...);
+    await repo.save(subscription);
+    
+    const retrieved = await repo.findById(subscription.id);
+    expect(retrieved).toEqual(subscription);
+  });
+});
+```
+
+## TypeScript Standards
+
+### Compiler Options (tsconfig.json)
+
+**Mandatory:**
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noFallthroughCasesInSwitch": true
+  }
+}
+```
+
+### Naming Conventions
+
+| Category | Convention | Example |
+|----------|-----------|---------|
+| Entities | PascalCase, singular | `User`, `Subscription` |
+| Value Objects | PascalCase, singular | `Email`, `Money`, `TenantId` |
+| Commands | PascalCase + "Command" | `CreateTenantCommand` |
+| Queries | PascalCase + "Query" | `GetTenantQuery` |
+| Events | PascalCase + "Event" | `SubscriptionActivatedEvent` |
+| Repositories | PascalCase + "Repository" | `UserRepository` |
+| Services | PascalCase + "Service" | `SubscriptionService` |
+| Handlers | PascalCase + "Handler" | `CreateTenantHandler` |
+| Interfaces | PascalCase, with I prefix optional | `IUserRepository` or `UserRepository` |
+| Functions | camelCase | `calculateDiscount()` |
+| Constants | UPPER_SNAKE_CASE | `MAX_RETRY_ATTEMPTS` |
+
+### Type System Best Practices
+
+**Discriminated Unions:**
+```typescript
+type SubscriptionStatus = 
+  | { type: 'pending'; expiresAt: Date }
+  | { type: 'active'; activatedAt: Date }
+  | { type: 'cancelled'; cancelledAt: Date };
+```
+
+**Branded Types:**
+```typescript
+type UserId = string & { readonly brand: 'UserId' };
+function createUserId(value: string): UserId {
+  return value as UserId;
+}
+```
+
+**Avoid:**
+- `any` type (use `unknown` instead)
+- `ts-ignore` comments
+- `ts-nocheck` files
+- Unsafe type assertions
+
+## Repository Pattern Rules
+
+### Abstract Persistence
+
+**Requirement:** No Prisma code outside Infrastructure layer
+
+**Boundaries:**
+
+| Layer | Allowed | Forbidden |
+|-------|---------|-----------|
+| Domain | Only types/interfaces | Prisma import |
+| Application | Repository interfaces | Direct Prisma calls |
+| Presentation | Repository interfaces | Direct database access |
+| Infrastructure | Prisma implementation | Business logic |
+
+**Example Implementation:**
+
+```typescript
+// Domain/Repositories (interface only, no implementation)
+export interface UserRepository {
+  save(user: User): Promise<void>;
+  findById(id: UserId): Promise<User | null>;
+  findByEmail(email: Email): Promise<User | null>;
+}
+
+// Application (use case depends on interface)
+export class CreateUserHandler {
+  constructor(private repo: UserRepository) {}
+  
+  async handle(command: CreateUserCommand): Promise<UserId> {
+    const user = User.create(command);
+    await this.repo.save(user);
+    return user.id;
+  }
+}
+
+// Infrastructure (Prisma implementation)
+@Injectable()
+export class PrismaUserRepository implements UserRepository {
+  constructor(private prisma: PrismaClient) {}
+  
+  async save(user: User): Promise<void> {
+    await this.prisma.user.upsert({
+      where: { id: user.id.value },
+      update: { /* ... */ },
+      create: { /* ... */ },
+    });
+  }
+  
+  async findById(id: UserId): Promise<User | null> {
+    const data = await this.prisma.user.findUnique({
+      where: { id: id.value },
+    });
+    return data ? toDomain(data) : null;
+  }
+}
+```
+
+## Forbidden Anti-Patterns
+
+### Strictly Prohibited
+
+The codebase SHALL NOT contain:
+
+1. **God Classes** — Classes with >200 lines, multiple responsibilities
+2. **Fat Controllers** — Controllers with business logic, >50 lines
+3. **Fat Services** — Services with >300 lines, tight coupling
+4. **Anemic Domain Models** — Entities with only getters/setters, no behavior
+5. **Primitive Obsession** — Using primitives instead of value objects
+6. **Circular Dependencies** — Module A → B → A
+7. **Framework Leakage** — Prisma/NestJS imports in domain
+8. **Database Leakage** — Raw SQL, direct schema access in business logic
+9. **Transaction Scripts** — Procedural code without domain model
+10. **Singleton Global State** — Global variables, non-injectable singletons
+11. **Large Switch Statements** — >5 branches (use strategy pattern)
+12. **Copy-Paste Logic** — Duplicated code (extract to utilities)
+13. **Utility Classes** — Classes with only static methods (use modules)
+14. **Business Logic in Controllers** — Controllers orchestrate only
+15. **Business Logic in ORM Models** — Prisma models are data only
+16. **Direct Prisma Outside Infrastructure** — Breaks layer boundary
+
+### Detection & Refusal
+
+**AI agents MUST:**
+1. Refuse implementations violating these patterns
+2. Auto-detect violations in code review
+3. Suggest refactoring during implementation
+4. Document violations in pull request comments
+
+## AI Agent Governance
+
+### Pre-Implementation Checklist
+
+Before generating any code, **VALIDATE:**
+
+- [ ] Constitution compliance — Does design follow this constitution?
+- [ ] Clean Architecture boundaries — Are layers separated correctly?
+- [ ] DDD principles — Are aggregates, entities, value objects modeled?
+- [ ] CQRS separation — Are commands/queries clearly separated?
+- [ ] Tenant isolation — Is tenant context enforced everywhere?
+- [ ] Anti-patterns detection — Does code contain forbidden patterns?
+- [ ] Architectural violations — Are framework/database leaks present?
+- [ ] Test completeness — Are all business rules tested?
+
+### Code Generation Standards
+
+**Every generated feature SHALL include:**
+
+1. Domain models (entities, aggregates, value objects)
+2. Domain events (immutable, timestamped)
+3. Application use cases (commands/queries, handlers)
+4. Repository interfaces (domain-layer contracts)
+5. Infrastructure implementations (Prisma repositories)
+6. API endpoints (REST controllers)
+7. Unit tests (minimum 85% coverage)
+8. Integration tests (repository + handler)
+9. Architecture documentation (component diagram)
+
+### Refusal Criteria
+
+**Agents MUST REFUSE:**
+1. Implementations mixing layers
+2. Business logic in controllers
+3. Framework dependencies in domain
+4. Direct Prisma calls outside infrastructure
+5. Missing tests for business rules
+6. Violations of naming conventions
+7. Use of `any` type without justification
+8. Missing tenant context enforcement
+9. Circular dependencies
+10. Copy-paste logic (suggest extraction)
+
+## Project Structure
+
+```
+sdd/
+├── .github/
+│   ├── skills/              # Copilot Agent Skills
+│   │   ├── speckit-specify/
+│   │   ├── speckit-plan/
+│   │   └── ...
+│   └── workflows/           # GitHub Actions
+├── .specify/                # Spec Kit configuration
+│   ├── constitution.md      # This file
+│   ├── architecture.md      # Architecture guide
+│   ├── standards.md         # Code standards
+│   └── templates/
+│       ├── feature-template.md
+│       ├── bounded-context-template.md
+│       └── domain-event-template.md
+├── src/
+│   ├── contexts/            # Bounded contexts (modular monolith)
+│   │   ├── tenant/
+│   │   ├── identity/
+│   │   ├── subscription/
+│   │   ├── billing/
+│   │   └── audit/
+│   ├── shared/              # Shared infrastructure
+│   │   ├── domain/          # Base domain classes
+│   │   ├── application/     # Base application classes
+│   │   ├── infrastructure/  # Shared infrastructure
+│   │   └── observability/   # Tracing, logging
+│   └── main.ts              # Application bootstrap
+├── test/
+│   ├── unit/                # Unit tests
+│   ├── integration/         # Integration tests
+│   ├── contract/            # Contract tests
+│   └── e2e/                 # End-to-end tests
+├── docker/
+│   ├── Dockerfile
+│   └── docker-compose.yml
+├── docs/
+│   ├── architecture.md      # Architecture diagrams
+│   ├── api.md               # API documentation
+│   └── domain-model.md      # Domain model glossary
+├── package.json
+├── tsconfig.json
+├── .env.example
+├── .gitignore
+└── README.md
+```
+
+## Implementation Roadmap
+
+### Phase 1: Foundation (Weeks 1-2)
+- Project bootstrap
+- Shared infrastructure
+- Tenant context
+- Identity & access foundation
+
+### Phase 2: Core Domain (Weeks 3-4)
+- Subscription domain
+- Billing domain events
+- Domain event infrastructure
+
+### Phase 3: Integration (Weeks 5-6)
+- Message broker setup
+- Event handlers
+- Cross-context communication
+
+### Phase 4: Observability (Weeks 7-8)
+- OpenTelemetry setup
+- Distributed tracing
+- Structured logging
+
+### Phase 5: Testing (Weeks 9-10)
+- Comprehensive test suite
+- Contract tests
+- Performance testing
+
+## Deliverables
+
+This constitution mandates the following artifacts:
+
+- ✅ `.specify/constitution.md` — Project principles and rules
+- [ ] `.specify/architecture.md` — Architecture guide and diagrams
+- [ ] `.specify/standards.md` — Code standards and style guide
+- [ ] `.specify/templates/feature-template.md` — Feature implementation template
+- [ ] `.specify/templates/bounded-context-template.md` — Bounded context template
+- [ ] `.specify/templates/domain-event-template.md` — Domain event template
+
+---
+
+**Version:** 1.0  
+**Last Updated:** 2025-11-22  
+**Status:** Active
