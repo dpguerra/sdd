@@ -95,7 +95,53 @@
       "artifactPath": "specs/<slug>/tasks.md"
     }
   },
-  "pipeline": null,
+  "pipeline": [
+    {
+      "id": "constitution"
+    },
+    {
+      "id": "specify"
+    },
+    {
+      "id": "clarify"
+    },
+    {
+      "id": "plan"
+    },
+    {
+      "id": "tasks"
+    },
+    {
+      "id": "taskstoissues"
+    },
+    {
+      "id": "analyze"
+    },
+    {
+      "id": "checklist"
+    },
+    {
+      "id": "implement"
+    },
+    {
+      "id": "analyze"
+    },
+    {
+      "id": "analyze"
+    },
+    {
+      "id": "analyze"
+    },
+    {
+      "id": "analyze"
+    },
+    {
+      "id": "analyze"
+    },
+    {
+      "id": "analyze"
+    }
+  ],
   "composition": {
     "presets": [
       {
