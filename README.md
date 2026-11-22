@@ -1,3 +1,514 @@
+# SDD Template (Software Design Document)
+
+# Engineering Constitution
+```contitution
+ .specify/constitution.md
+```
+
+## Purpose
+
+This repository shall be maintained as an enterprise-grade TypeScript system designed for long-term maintainability, testability, and scalability.
+
+---
+
+# Core Principles
+
+## Principle 1 — Clean Architecture
+
+The system SHALL follow Clean Architecture.
+
+Dependencies must always point inward.
+
+Allowed dependency flow:
+
+Infrastructure
+→ Presentation
+→ Application
+→ Domain
+
+Domain MUST NOT depend on:
+
+- Frameworks
+- Databases
+- ORMs
+- External APIs
+- SDKs
+
+---
+
+## Principle 2 — SOLID
+
+All code SHALL comply with SOLID principles.
+
+Special attention:
+
+- Single Responsibility Principle
+- Dependency Inversion Principle
+
+---
+
+## Principle 3 — Dependency Injection
+
+Dependencies SHALL be injected.
+
+Forbidden:
+
+new ConcreteRepository()
+
+inside use cases.
+
+Required:
+
+constructor(
+    private readonly repository: UserRepository
+)
+
+---
+
+## Principle 4 — Domain Driven Design
+
+When business complexity exists, the system SHALL use:
+
+- Entities
+- Value Objects
+- Aggregates
+- Domain Events
+- Repositories
+
+Simple CRUD systems should avoid unnecessary DDD abstractions.
+
+---
+
+## Principle 5 — Testing
+
+Every business rule MUST have automated tests.
+
+Required:
+
+- Unit tests
+- Integration tests
+- End-to-end tests for critical flows
+
+Minimum coverage target:
+
+80%
+
+---
+
+# Required Design Patterns
+
+The following patterns are approved:
+
+- Strategy
+- Factory Method
+- Builder
+- Repository
+- Adapter
+- Facade
+- Observer
+- Command
+
+Each pattern must be justified by a business or technical need.
+
+Pattern abuse is forbidden.
+
+---
+
+# Forbidden Anti-Patterns
+
+The codebase SHALL NOT contain:
+
+- God Classes
+- Fat Controllers
+- Anemic Domain Model
+- Primitive Obsession
+- Business Logic inside Controllers
+- Circular Dependencies
+- Framework Leakage into Domain
+- Singleton Global State
+- Large Switch Statements
+- Direct Database Access outside Repositories
+
+---
+
+# TypeScript Rules
+
+Required:
+
+- strict mode
+- noImplicitAny
+- strictNullChecks
+- exhaustive typing
+
+Forbidden:
+
+- any
+- ts-ignore
+- magic strings for domain rules
+
+```architecture
+.specify/architecture.md
+```
+# System Architecture
+
+## Architectural Style
+
+- Clean Architecture
+- Modular Monolith by default
+- Event-driven internally
+- API-first design
+
+---
+
+# Layers
+
+## Domain
+
+Responsibilities:
+
+- Enterprise rules
+- Entities
+- Value Objects
+- Domain Events
+
+Folder:
+
+src/domain
+
+---
+
+## Application
+
+Responsibilities:
+
+- Use Cases
+- Commands
+- Queries
+- DTOs
+
+Folder:
+
+src/application
+
+---
+
+## Infrastructure
+
+Responsibilities:
+
+- Database
+- Messaging
+- Cache
+- External APIs
+
+Folder:
+
+src/infrastructure
+
+---
+
+## Presentation
+
+Responsibilities:
+
+- Controllers
+- Routes
+- Validation
+- Serialization
+
+Folder:
+
+src/presentation
+
+---
+
+# Project Structure
+
+```files
+src/
+├── domain/
+├── application/
+├── infrastructure/
+├── presentation/
+├── shared/
+└── tests/
+```
+---
+
+# Event Model
+
+Domain events SHALL be used for:
+
+- User registration
+- Order lifecycle
+- Payment lifecycle
+- Audit activities
+
+Examples:
+
+- UserCreatedEvent
+- OrderPaidEvent
+- InvoiceGeneratedEvent
+
+Implementation pattern:
+
+Observer/EventBus
+
+# Development Standards
+```standards
+.specify/standards.md
+```
+
+
+## Naming
+
+Entities:
+
+User
+Order
+Invoice
+
+Value Objects:
+
+Email
+Money
+Address
+UserId
+
+Commands:
+
+CreateUserCommand
+PayInvoiceCommand
+
+Queries:
+
+GetUserByIdQuery
+
+Repositories:
+
+UserRepository
+
+Adapters:
+
+StripeAdapter
+SapAdapter
+
+Facades:
+
+PaymentFacade
+NotificationFacade
+
+---
+
+# Error Handling
+
+Base hierarchy:
+
+ApplicationError
+BusinessRuleError
+ValidationError
+IntegrationError
+InfrastructureError
+
+Never throw generic Error.
+
+---
+
+# Logging
+
+Must use structured logging.
+
+Required attributes:
+
+- timestamp
+- traceId
+- correlationId
+- requestId
+
+---
+
+# Validation
+
+Must happen at system boundaries.
+
+Examples:
+
+- HTTP Requests
+- Queue Messages
+- External Integrations
+
+Domain entities must remain self-validating.
+
+---
+
+# Security
+
+Required:
+
+- Authentication
+- Authorization
+- Input validation
+- Secret management
+- Audit logging
+
+Forbidden:
+
+- secrets in source code
+- credentials in repositories
+
+# Feature Specification
+```feature-template
+.specify/templates/feature-template.md
+```
+
+## Feature Name
+
+[FEATURE_NAME]
+
+---
+
+## Business Goal
+
+Describe the business problem.
+
+---
+
+## Actors
+
+- User
+- Administrator
+- External Service
+
+---
+
+## Functional Requirements
+
+### FR-001
+
+The system shall ...
+
+### FR-002
+
+The system shall ...
+
+---
+
+## Non-Functional Requirements
+
+### Performance
+
+Response time < 500ms
+
+### Availability
+
+99.9%
+
+### Security
+
+JWT authentication required
+
+---
+
+## Domain Model
+
+### Entities
+
+- User
+- Subscription
+
+### Value Objects
+
+- UserId
+- Email
+- Money
+
+### Domain Events
+
+- SubscriptionCreated
+
+---
+
+## Use Cases
+
+### Create Subscription
+
+Input:
+
+- userId
+- planId
+
+Output:
+
+- subscriptionId
+
+---
+
+## Architecture Impact
+
+Layer changes:
+
+- Domain
+- Application
+- Infrastructure
+
+---
+
+## Patterns Applied
+
+- Factory
+- Strategy
+- Repository
+
+Justification:
+
+Describe why each pattern is necessary.
+
+---
+
+## Anti-Pattern Validation
+
+Verify feature does NOT introduce:
+
+- God Class
+- Fat Controller
+- Primitive Obsession
+- Circular Dependency
+- Framework Leakage
+
+---
+
+## Testing Requirements
+
+Unit Tests:
+Required
+
+Integration Tests:
+Required
+
+E2E Tests:
+Required
+
+Coverage:
+80% minimum
+
+# AI Generation Rules
+
+Before generating code:
+
+1. Validate compliance with Constitution.
+2. Validate Clean Architecture boundaries.
+3. Validate SOLID.
+4. Validate DDD rules.
+5. Detect anti-patterns.
+6. Prefer composition over inheritance.
+7. Prefer Value Objects over primitive types.
+8. Prefer interfaces over concrete implementations.
+9. Prefer domain events over tight coupling.
+10. Generate tests together with implementation.
+
+If a requested implementation violates this constitution,
+propose a compliant alternative.
+
 # Security Architecture Decisions (SADR)
 
 ## 1. Gestão de Credenciais e Senhas
