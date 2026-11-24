@@ -55,17 +55,27 @@ Generate a concise short name (2-4 words) for the branch:
 - Use action-noun format when possible (e.g., "add-user-auth", "fix-payment-bug")
 - Preserve technical terms and acronyms (OAuth2, API, JWT, etc.)
 
+For the PowerShell pre-specification hook, use the context-aware wrapper below.
+When `SPECIFY_FEATURE_DIRECTORY` matches the hook-owned
+`.specify/extensions/git/feature-branch-context.json`, it verifies the recorded
+branch and returns success without running the one-time branch-creation script.
+It fails closed on a branch mismatch. For a new feature it invokes the existing
+branch-creation script; when the directory is explicitly supplied it records the
+new association. An existing, different feature context requires an explicit
+marker transition before beginning a new synchronization.
+
 Run the appropriate script based on your platform:
 
 - **Bash**: `.specify/extensions/git/scripts/bash/create-new-feature-branch.sh --json --short-name "<short-name>" "<feature description>"`
 - **Bash (timestamp)**: `.specify/extensions/git/scripts/bash/create-new-feature-branch.sh --json --timestamp --short-name "<short-name>" "<feature description>"`
-- **PowerShell**: `.specify/extensions/git/scripts/powershell/create-new-feature-branch.ps1 -Json -ShortName "<short-name>" "<feature description>"`
-- **PowerShell (timestamp)**: `.specify/extensions/git/scripts/powershell/create-new-feature-branch.ps1 -Json -Timestamp -ShortName "<short-name>" "<feature description>"`
+- **PowerShell**: `.specify/extensions/git/scripts/powershell/pre-specify-feature.ps1 -Json -ShortName "<short-name>" "<feature description>"`
+- **PowerShell (timestamp)**: `.specify/extensions/git/scripts/powershell/pre-specify-feature.ps1 -Json -Timestamp -ShortName "<short-name>" "<feature description>"`
 
 **IMPORTANT**:
 - Do NOT pass `--number` — the script determines the correct next number automatically
 - Always include the JSON flag (`--json` for Bash, `-Json` for PowerShell) so the output can be parsed reliably
-- You must only ever run this script once per feature
+- The underlying branch-creation script must only be run once per feature synchronization;
+  repeated PowerShell hook invocations MUST use the wrapper
 - The JSON output will contain `BRANCH_NAME` and `FEATURE_NUM`
 - Do not manually expand `branch_template`; the script reads the git extension config and applies it consistently
 

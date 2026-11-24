@@ -918,7 +918,7 @@
         "effectiveBaseIdx": 0
       }
     ],
-    "refreshedAt": "2026-11-22T20:03:05.558Z",
+    "refreshedAt": "2026-11-23T12:10:27.068Z",
     "inferredPipeline": {
       "shape": "augmented-canonical",
       "pipeline": [
@@ -937,7 +937,7 @@
     },
     "builtFrom": {
       "compositionFingerprint": "5d71754c22b5111b653ce7c910924657d393dbce",
-      "catalogChangedAt": "2026-11-22T20:03:05.558Z"
+      "catalogChangedAt": "2026-11-23T12:10:27.068Z"
     }
   }
 }

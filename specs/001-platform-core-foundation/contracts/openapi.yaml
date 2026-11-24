@@ -1,0 +1,4662 @@
+openapi: 3.1.0
+info:
+  title: Platform Core Foundation API
+  version: 1.0.0
+  summary: Canonical REST contract for the Platform Core Foundation.
+  description: |
+    Versioned, channel-independent contract for platform infrastructure only.
+    Tenant operations require authenticated tenant context; platform operations
+    require separately authenticated platform-operator authority. An identifier
+    in a path or request never grants authority or selects a tenant by itself.
+    All authentication attempts and sensitive state changes are audited. Every
+    response returns a correlation identifier; trace context propagates through
+    asynchronous work.
+servers:
+  - url: /v1
+    description: Version 1 API
+tags:
+  - name: Authentication
+  - name: Tenants
+  - name: Identity
+  - name: Credentials
+  - name: Events
+  - name: Modules
+  - name: Scaffolding
+  - name: Configuration
+  - name: Governance
+  - name: Audit
+  - name: Documentation
+  - name: Platform
+security:
+  - TenantJWT: []
+x-tenant-isolation:
+  required: true
+  resolution: verified JWT membership or tenant-bound API credential
+  mismatchBehavior: deny
+  enforcement: application authorization, tenant-aware persistence, database row-level security, cache keys, event routing, and asynchronous consumer revalidation
+x-identity-and-session-policy:
+  tenantSlugUniqueness: deployment-wide, case-insensitive, independent of parent-child hierarchy
+  userEmailUniqueness: case-insensitive within each tenant; the same email may identify separate accounts in different tenants
+  uniquenessConflict: return 409 without applying the requested tenant or identity change
+  signIn: tenant qualification is required before account lookup
+  suspension: deny tenant-initiated business operations; permit explicitly authorized background processing and maintenance in the tenant context with applicable isolation, audit, and event-delivery controls; only a platform-global Platform Operator may suspend or reactivate a tenant
+  logout: revoke only the authenticated session's refresh credentials and immediately reject that session's already-issued access tokens on subsequent requests; other sessions remain usable
+  sessionValidation: obtain sufficiently current session status for each applicable authorization check; deny if required status cannot be established
+  refreshReplay: authenticate the refresh request and revalidate current session status before returning any retry result; never return tokens for a revoked session
+  implementationChoices: normalization, uniqueness persistence, session-revocation storage, and recovery strategy are not prescribed here
+x-data-ownership-and-protection:
+  ownership: each bounded context owns its authoritative data, private persistence boundary, migrations, and applicable Outbox or consumer-owned Inbox
+  accessBoundary: no direct cross-context access to another module's private persistence or migrations
+  projections: consumer-owned derived data; not a substitute for authoritative source state
+  protectedSurfaces: [primary_and_private_persistence, projections, migrations, backups, restores, exports, archives, analytics, persisted_dead_letter_copies]
+  copiedData: preserve applicable classification, tenant isolation, retention, and access controls across projections, migrations, backups, restores, exports, archives, analytics, and persisted dead-letter copies
+  atRest: applicable sensitive persisted data is protected using AES-256
+  implementationChoices: physical database topology and encryption mechanism are not prescribed here
+x-delegated-tenant-access:
+  mechanism: X-Delegated-Tenant-Grant
+  callerIdentity: TenantJWT only
+  rule: |
+    A parent tenant actor may select a child tenant only by supplying the
+    opaque grant identifier in X-Delegated-Tenant-Grant. The server independently
+    rechecks the grant on every request: active status, exact child tenant
+    context, direct parent relationship, grant permission intersection, actor
+    membership and tenant-admin authority, and deployment non-delegable rules.
+    The effective tenant context is the child tenant, not the parent. The JWT
+    retains the parent actor identity for attributable audit evidence.
+  noHierarchyImpliedAccess: true
+  transitive: false
+  hierarchyChange: inactive_or_removed_grants_are_not_valid_after_the_direct_relationship_changes
+  grantScope: operationId-based canonical permissions; unspecified permissions are denied
+  untrustedCallerPolicyInputs: []
+  applicableOperations:
+    - getTenant
+    - updateTenant
+    - listTenantUsers
+    - createTenantUser
+    - getTenantUser
+    - updateTenantUser
+    - replaceTenantUserRoles
+    - listApiCredentials
+    - issueApiCredential
+    - getApiCredential
+    - revokeApiCredential
+    - listTenantEvents
+    - publishTenantEvent
+    - listEventSubscriptions
+    - createEventSubscription
+    - getEventSubscription
+    - updateEventSubscription
+    - deleteEventSubscription
+    - listSubscriptionFailures
+    - replayFailedDelivery
+    - submitModuleRelease
+    - getTenantModuleSubmission
+    - listInstalledModules
+    - getInstalledModule
+    - installModule
+    - transitionModuleLifecycle
+    - uninstallModule
+    - getTenantLifecycleOperation
+    - listTenantConfigurations
+    - getTenantConfiguration
+    - putTenantConfiguration
+    - listTenantAuditRecords
+    - listComplianceReports
+    - createComplianceReport
+x-module-governance-separation:
+  decisions: [review, approval]
+  digestBinding: immutable sha256 platform-computed artifact digest
+  reviewRequiredForApproval: true
+  lifecycle:
+    initialStatus: pending_review
+    terminalStatuses: [rejected, revoked]
+    statuses: [pending_review, approved, rejected, published, revoked]
+    permittedTransitions:
+      pending_review_to_approved: positive_review_and_separate_positive_approval_for_the_exact_digest
+      pending_review_to_rejected: negative_review_or_negative_approval
+      pending_review_to_revoked: governed_withdrawal_or_revocation
+      approved_to_published: successful_manifest_validation_and_active_exact_digest_approval
+      approved_to_revoked: governed_withdrawal_or_revocation
+      published_to_revoked: governed_withdrawal_or_revocation
+    invalidTransition: lifecycle_conflict_HTTP_409
+    staleSubmissionETag: HTTP_412
+    missingSubmissionIfMatch: HTTP_428
+    reFetchSubmissionETagForEveryMutation: true
+    versionAdvance: every_accepted_review_or_status_transition
+    resubmission: creates_a_new_pending_review_submission
+    replayPrecedence:
+      authFirst: reauthenticate_and_reauthorize_before_returning_any_idempotent_replay
+      exactKeyResolutionFirst: resolve_the_scoped_exact_canonical_request_before_submission_preconditions
+      staleIfMatchReplay: return_the_recorded_outcome_for_an_exact_retry_even_when_its_original_submission_etag_is_now_stale
+      replayEffect: no_new_transition_or_mutation
+      keyMismatch: HTTP_409_idempotency_key_reused
+  serverPolicy:
+    deploymentConfiguredSeparation: enforced by the server at approval time
+    policyVersionRecorded: true
+    reviewerAndApproverIdentitiesRecorded: true
+    callerCannotSupplyPolicyIdentityOrVersion: true
+  noSandboxClaim: true
+x-release-and-operations-gates:
+  wcag: "WCAG 2.2 Level AA is a release gate for the documentation and developer portals; it is not a REST endpoint."
+  recovery: "Deployment-specific RPO/RTO and recovery-test evidence are operations/release gates; no platform-wide endpoint or numeric target is defined."
+x-pre-exposure-validation:
+  appliesTo: each newly exposed or materially changed capability and each channel that exposes it
+  requiredEvidence: [versioned_canonical_contract, applicable_contract_tests, architecture_tests, security_and_governance_gates, applicable_channel_compatibility]
+  eligibility: fail_closed_if_any_mandatory_evidence_is_missing_failed_expired_or_stale
+  revalidation: required_after_material_contract_policy_tenant_enforcement_certification_or_lifecycle_changes
+  invalidatedExposure: reconcile_disable_or_withdraw_under_governed_lifecycle; never_report_available_while_a_mandatory_gate_fails
+  outage: retain_only_last_validated_configuration_for_still_available_capabilities; do_not_activate_new_or_changed_exposure
+  implementationChoices: no Gateway product or validation mechanism is selected here
+x-platform-authority:
+  requiredFor:
+    - root- and child-tenant creation
+    - tenant suspension and reactivation
+    - initial Tenant Admin bootstrap
+    - global configuration and standards publication
+    - module-code review and approval, submission publication and revocation
+    - platform-wide listings and audit access
+  separation: tenant roles and tenant-bound API credentials cannot grant platform authority
+x-tenant-provisioning-authority:
+  authoritativeActor: platform_operator
+  organizationAdministratorPersona: mapped_to_platform_operator_for_v1_tenant_creation_suspension_reactivation_and_initial_admin_bootstrap; not_a_separate_role
+  rootCreation: platform_operator_only
+  childCreation:
+    currentPolicy: platform_operator_only
+    parentTenantId: organizational_relationship_only; grants_no_authority
+    tenantAdminRequestCapability: future_optional_governed_capability; a_request_never_creates_a_tenant_or_grants_creation_authority
+    futureDelegationAfterV1: requires_explicit_scoped_policy; not_implied_by_membership_hierarchy_or_existing_child_administration
+  initialTenantAdminBootstrap:
+    authority: platform_operator_only
+    precondition: no_tenant_admin_exists
+    nonAdminUsersDoNotPreventBootstrap: true
+    deniedWhenTenantAdminExists: true
+  tenantSuspensionAndReactivation: platform_operator_only
+x-authorization-policy:
+  default: deny
+  rule: |
+    An operation's operationId is its permission identifier for JWT principals.
+    Role grants are additive and apply only after authentication, tenant matching,
+    resource ownership, and applicable policy checks. Platform authority is
+    separate from tenant roles. Credential scopes are further restricted to
+    the current authority of the credential owner.
+  roleGrants:
+    tenant_admin:
+      operations: all operations accepting TenantJWT
+      scope: authenticated tenant only; delegated parent-to-child use additionally requires an active child-owned grant and is never transitive
+    developer:
+      operations: [searchDocumentation, getDocumentationPage, listModuleCatalog, getCatalogModule, listInstalledModules, getInstalledModule, scaffoldModule, getCurrentScaffoldStandards, getScaffoldTemplate, listEventTypes, getEventType, listTenantEvents, publishTenantEvent, listEventSubscriptions, createEventSubscription, getEventSubscription, updateEventSubscription, deleteEventSubscription, listSubscriptionFailures, replayFailedDelivery, submitModuleRelease, getTenantModuleSubmission, listApiCredentials, issueApiCredential, getApiCredential, revokeApiCredential, ingestModuleTelemetry, getTenantLifecycleOperation]
+      scope: authenticated tenant; credential and submission management is limited to the caller's own records and lifecycle operation inspection to the caller's own operations
+    governance_officer:
+      operations: [listComplianceReports, createComplianceReport, listTenantAuditRecords]
+      scope: authenticated tenant only
+    user:
+      operations: [getTenant, getTenantUser, listTenantConfigurations, getTenantConfiguration]
+      scope: own user profile and non-secret tenant settings safe for ordinary users only; exclude infrastructure and secret-valued settings and references
+    billing_manager:
+      operations: []
+      scope: no billing privileges until a billing module exists
+    platform_operator:
+      operations: all operations accepting PlatformJWT
+      scope: explicit platform operations only; does not grant tenant access
+  credentialScopes:
+    events:read: [listEventTypes, getEventType, listTenantEvents]
+    events:publish: [publishTenantEvent]
+    events:subscribe: [listEventSubscriptions, createEventSubscription, getEventSubscription]
+    scaffolds:read: [getCurrentScaffoldStandards, getScaffoldTemplate]
+    scaffolds:write: [scaffoldModule]
+    configuration:read: [listTenantConfigurations, getTenantConfiguration]
+    telemetry:write: [ingestModuleTelemetry]
+  credentialRule: |
+    Requested scopes must be from this catalog and a subset of the issuer's
+    current tenant authority. Revalidate the owner's authority at use; the
+    credential cannot grant platform access or exceed the owner's permissions.
+  bootstrap: |
+    Liveness and readiness are public. Login and refresh authenticate their
+    supplied credentials without an existing access token. Logout requires its
+    authenticated session. These exceptions do not grant any other operation.
+x-auth-bootstrap:
+  tenantLogin: validates submitted tenant credentials without an access token; supplied tenant is checked against user membership
+  platformLogin: validates submitted operator credentials without an access token
+  refresh: authenticates the refresh cookie without an access token
+  initialPlatformOperator: provisioned out of band; no public self-elevation or bootstrap operation
+x-state-change-policy:
+  retrySafety: each state-changing operation defines retry safety, duplicate outcome, operation identity requirements, conflicts, and errors; naturally idempotent operations do not require Idempotency-Key
+  idempotencyKey: required only when the operation's retry contract needs an operation identity; concurrent duplicate keys produce one effect
+  conflicts: key reuse with a different request returns 409 and has no additional effect
+  retention: deployment-defined retention sufficient to cover the supported retry and asynchronous completion windows, including applicable retries after completion
+  asynchronousOperationRetention: never delete a key before asynchronous operation completion
+  universalNumericRetention: none
+  concurrency: updates to existing versioned resources require strong If-Match; configuration PUT requires If-Match for replacement or If-None-Match star for creation; missing, stale, or contradictory preconditions do not mutate state
+  mechanism: no idempotency storage or concurrency-control technology is prescribed
+  auditing: all authentication attempts and sensitive operations are recorded; secret values are excluded
+x-observability-policy:
+  requestCorrelation: X-Correlation-Id is accepted and returned
+  tracing: W3C trace context propagates through application and asynchronous event handling
+  redaction: logs, traces, metrics, and errors exclude credentials and secret values
+x-audit-policy:
+  immutable: true
+  retentionYears: 7
+  includes: [authentication_attempts, identity_changes, tenant_changes, module_approval_and_lifecycle, configuration_changes, standards_and_compliance, event_administration]
+  secretValues: never_recorded
+  moduleSubmission:
+    creationReason: server_derived_authorized_partner_release_submission
+    publicationReason: server_derived_authorized_catalog_publication_after_manifest_and_exact_digest_validation
+    deniedChanges: unauthorized_or_invalid_changes_are_denied_and_audited_without_secret_values
+    reasonResolution:
+      review: explicit_reason_when_supplied_otherwise_server_derived_decision_reason_with_standards_assessment_evidence
+      approval: explicit_reason_when_supplied_otherwise_server_derived_decision_reason_with_bound_review_and_standards_evidence
+      revocation: explicit_required_reason
+      creation: server_derived_submission_reason
+      publication: server_derived_publication_decision_and_manifest_validation_evidence
+    auditShape:
+      includes: [submissionId, tenantId, actor, time, previousStatus, newStatus, artifactDigest, reason, correlationContext]
+      creationPreviousStatus: omitted
+      decisionOrSupportingEvidenceReference: required
+      policyVersion: recorded_when_applicable
+x-event-retention-policy:
+  defaultHotRetentionDays: 30
+  afterExpiry: archive
+  pendingDeliveryObligations: never_expire_or_discard_until_processed
+x-standards-grace-policy:
+  eligible: modules already installed at the start of the grace period
+  security: mandatory security and tenant isolation are never waived
+  afterExpiry: disable non-compliant modules and their dependents; keep core and unaffected modules available
+x-channel-conformance:
+  canonical: REST/OpenAPI
+  consumers: [MCP, CLI, GUI, SDK, automation, external integrations]
+  rule: channels consume the same authorized application capabilities and cannot add privileged paths or duplicate authoritative policy
+x-http-error-mapping:
+  "400": malformed_request
+  "401": authentication_required_or_invalid_credentials
+  "403": authorization_denied_or_tenant_context_mismatch
+  "404": resource_not_found_without_cross_tenant_disclosure
+  "409": state_conflict_or_idempotency_key_reuse
+  "412": stale_if_match_precondition
+  "422": schema_or_governance_validation_failed
+  "428": required_concurrency_precondition_missing
+  "429": rate_limited
+  "500": unexpected_platform_error
+  "503": dependency_unavailable
+paths:
+  /health/live:
+    get:
+      tags: [Platform]
+      operationId: getLiveness
+      summary: Check process liveness
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: The process is alive.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /health/ready:
+    get:
+      tags: [Platform]
+      operationId: getReadiness
+      summary: Check readiness without exposing dependency details
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: The platform is ready.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        "503":
+          description: The platform is not ready.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+  /auth/sessions:
+    post:
+      tags: [Authentication]
+      operationId: createTenantSession
+      summary: Authenticate a tenant user and issue tokens
+      description: |
+        Bootstrap authentication: validates supplied credentials without an
+        existing access token. The tenant must be active and the authenticated
+        user must belong to it. Returns a 15-minute JWT and sets a 7-day,
+        Secure, HttpOnly, SameSite refresh cookie; refresh material is never
+        returned in the JSON body.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantLoginRequest"
+      responses:
+        "201":
+          description: Tenant session established.
+          headers:
+            Set-Cookie:
+              description: Secure, HttpOnly, SameSite refresh cookie; Path is limited to the refresh endpoint.
+              schema:
+                type: string
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenResponse"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /auth/tokens/refresh:
+    post:
+      tags: [Authentication]
+      operationId: refreshTenantSession
+      summary: Refresh a tenant access token
+      description: Authenticates the supplied refresh cookie; no access token is required.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Access token renewed and refresh cookie rotated.
+          headers:
+            Set-Cookie:
+              description: Rotated Secure, HttpOnly, SameSite refresh cookie.
+              schema:
+                type: string
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenResponse"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /auth/sessions/current:
+    delete:
+      tags: [Authentication]
+      operationId: revokeTenantSession
+      summary: Revoke the current tenant session
+      description: |
+        Revokes only the authenticated session and clears its refresh cookie.
+        Its already-issued access tokens are rejected immediately on subsequent
+        requests; other sessions remain usable.
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "204":
+          description: Session revoked.
+          headers:
+            Set-Cookie:
+              description: Expired refresh cookie.
+              schema:
+                type: string
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+  /platform/auth/sessions:
+    post:
+      tags: [Authentication, Platform]
+      operationId: createPlatformSession
+      summary: Authenticate a platform operator
+      description: |
+        Bootstrap authentication for platform operators. Supplied credentials
+        are independently authenticated without a previously issued token.
+        Initial operator enrollment is an out-of-band deployment responsibility;
+        this endpoint cannot create or elevate an operator account.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformLoginRequest"
+      responses:
+        "201":
+          description: Platform-operator session established.
+          headers:
+            Set-Cookie:
+              description: Secure, HttpOnly, SameSite refresh cookie, scoped to platform refresh.
+              schema:
+                type: string
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformAccessTokenResponse"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/auth/tokens/refresh:
+    post:
+      tags: [Authentication, Platform]
+      operationId: refreshPlatformSession
+      summary: Refresh a platform-operator access token
+      description: Authenticates the supplied platform refresh cookie; no access token is required.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Platform access token renewed and refresh cookie rotated.
+          headers:
+            Set-Cookie:
+              description: Rotated Secure, HttpOnly, SameSite platform refresh cookie.
+              schema:
+                type: string
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformAccessTokenResponse"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/auth/sessions/current:
+    delete:
+      tags: [Authentication, Platform]
+      operationId: revokePlatformSession
+      summary: Revoke the current platform-operator session
+      description: |
+        Revokes only the authenticated platform-operator session and clears its
+        refresh cookie. Its already-issued access tokens are rejected
+        immediately on subsequent requests; other sessions remain usable.
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "204":
+          description: Session revoked.
+          headers:
+            Set-Cookie:
+              description: Expired platform refresh cookie.
+              schema:
+                type: string
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+  /tenants:
+    get:
+      tags: [Tenants]
+      operationId: listTenants
+      summary: List tenants for platform operations
+      description: Global listing is available only to an authenticated platform operator.
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/TenantStatus"
+      responses:
+        "200":
+          description: Page of tenant metadata.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+    post:
+      tags: [Tenants]
+      operationId: createTenant
+      summary: Provision an isolated tenant
+      description: |
+        In v1, this is a Platform Operator-only action for root or child tenant
+        creation. The Organization Administrator persona maps to this Platform
+        Operator authority for provisioning, but is not a separate role.
+        Tenant identity and isolation boundaries are provisioned by the
+        platform; callers cannot select another tenant's isolation root. An
+        optional parentTenantId establishes only the direct organizational
+        relationship and grants no authority. A future child-provisioning
+        request capability would be explicitly governed and would not create a
+        tenant or grant creation authority; no request operation is defined
+        here. Any scoped creation delegation after v1 requires an explicit
+        policy. Slugs must be unique deployment-wide under case-insensitive
+        comparison, regardless of parent-child relationships.
+      x-authority: platform_operator
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTenantRequest"
+      responses:
+        "201":
+          description: Tenant provisioned.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      tags: [Tenants]
+      operationId: getTenant
+      summary: Get tenant metadata
+      description: Tenant users may read only their own tenant; platform operators may read any tenant.
+      security:
+        - TenantJWT: []
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Tenant metadata.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        default:
+          $ref: "#/components/responses/StandardError"
+    patch:
+      tags: [Tenants]
+      operationId: updateTenant
+      summary: Update tenant metadata
+      description: Tenant slug changes are checked for deployment-wide case-insensitive uniqueness, regardless of parent-child relationships.
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/UpdateTenantRequest"
+      responses:
+        "200":
+          description: Updated tenant metadata.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/suspension:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    put:
+      tags: [Tenants]
+      operationId: setTenantSuspension
+      summary: Suspend or reactivate a tenant
+      description: |
+        Platform Operator-only soft status change. Setting status to suspended
+        suspends the tenant; setting it to active reactivates the tenant. Tenant
+        data is retained under the configured compliance retention policy.
+        Suspension denies tenant-initiated business operations. Only explicitly
+        authorized background processing and maintenance may continue under
+        the tenant context with applicable authorization, isolation, audit, and
+        event-delivery controls intact. Tenant-scoped roles cannot perform
+        either transition.
+      x-authority: platform_operator
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantSuspensionRequest"
+      responses:
+        "200":
+          description: Tenant status changed.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/delegated-admin-grants:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      tags: [Tenants]
+      operationId: listDelegatedAdminGrants
+      summary: List grants owned by this child tenant
+      description: Only the child tenant may list, create, or revoke grants naming its direct parent. This operation is not itself platform administration.
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Grant metadata for direct-parent administration.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DelegatedAdminGrantPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+    post:
+      tags: [Tenants]
+      operationId: createDelegatedAdminGrant
+      summary: Explicitly grant scoped administration to the direct parent
+      description: |
+        Child-tenant-administrator operation only. The server verifies that the
+        supplied parentTenantId is the authenticated child's direct parent and
+        rejects transitive, unrelated, or unspecified scopes. No hierarchy access
+        is implied. The grant is attributable and audited.
+      x-authorized-roles: [tenant_admin]
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDelegatedAdminGrantRequest"
+      responses:
+        "201":
+          description: Explicit child-owned grant created.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DelegatedAdminGrant"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/delegated-admin-grants/{grantId}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - name: grantId
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+    delete:
+      tags: [Tenants]
+      operationId: revokeDelegatedAdminGrant
+      summary: Revoke a child-owned direct-parent grant
+      description: Child-tenant-administrator operation. Revocation is attributable and takes effect on subsequent authorization checks.
+      x-authorized-roles: [tenant_admin]
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "204":
+          description: Grant revoked; no further delegated requests are authorized.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/tenants/{tenantId}/bootstrap-administrator:
+    post:
+      tags: [Identity, Platform]
+      operationId: bootstrapTenantAdministrator
+      summary: Create the first tenant administrator
+      description: |
+        Platform-operator bootstrap operation for a tenant.
+        It succeeds only once, when the tenant has no Tenant Admin and initial
+        bootstrap has not previously completed, and creates exactly one initial
+        Tenant Admin even under concurrent attempts. Existing non-admin users
+        do not prevent bootstrap. It is denied when a Tenant Admin already
+        exists. The supplied password is securely hashed, never returned,
+        logged, or included in audit values. Subsequent user management uses
+        the tenant identity APIs. Tenant-scoped roles cannot perform this
+        initial bootstrap.
+      security:
+        - PlatformJWT: []
+      x-authority: platform_operator
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BootstrapTenantAdministratorRequest"
+      responses:
+        "201":
+          description: First tenant administrator created and audited.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+  /tenants/{tenantId}/users:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      tags: [Identity]
+      operationId: listTenantUsers
+      summary: List users in the authenticated tenant
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Page of tenant users.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+    post:
+      tags: [Identity]
+      operationId: createTenantUser
+      summary: Create a user in the authenticated tenant
+      description: |
+        Requires tenant-administrator authority. Password input is accepted
+        only for enrollment, securely hashed using bcrypt or an equivalent
+        password-hashing function, and never returned, logged, or included in
+        audit values.
+      x-authorized-roles: [tenant_admin]
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: Tenant user created.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/users/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/UserId"
+    get:
+      tags: [Identity]
+      operationId: getTenantUser
+      summary: Get a user in the authenticated tenant
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: User record without credential material.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        default:
+          $ref: "#/components/responses/StandardError"
+    patch:
+      tags: [Identity]
+      operationId: updateTenantUser
+      summary: Update a user profile
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: Updated user.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/users/{userId}/roles:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/UserId"
+    put:
+      tags: [Identity]
+      operationId: replaceTenantUserRoles
+      summary: Replace a user's tenant roles
+      description: |
+        Roles are limited to the v1 platform role catalog. The caller must be
+        authorized to administer tenant identity; assignment cannot grant
+        platform-operator authority.
+      x-authorized-roles: [tenant_admin]
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceRolesRequest"
+      responses:
+        "200":
+          description: Role assignment replaced.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+  /tenants/{tenantId}/api-credentials:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      tags: [Credentials]
+      operationId: listApiCredentials
+      summary: List tenant API credentials
+      description: Lists credential metadata only; secret material is never recoverable.
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Page of credential metadata.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiCredentialPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+    post:
+      tags: [Credentials]
+      operationId: issueApiCredential
+      summary: Issue a tenant API credential
+      description: |
+        Requires authenticated developer or tenant-admin authority. The secret
+        is emitted only in the initial 201 response. Idempotent retries return
+        credential metadata without the secret. No read, list, or later issuance
+        response contains secret material.
+      x-authorized-roles: [tenant_admin, developer]
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueApiCredentialRequest"
+      responses:
+        "201":
+          description: Credential created; secret returned for this response only.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiCredentialIssuance"
+        "200":
+          description: Idempotency replay; the credential exists but its one-time secret is not returned.
+          headers:
+            Idempotency-Replayed:
+              schema:
+                type: boolean
+                const: true
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiCredential"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/api-credentials/{credentialId}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/CredentialId"
+    get:
+      tags: [Credentials]
+      operationId: getApiCredential
+      summary: Get API credential metadata
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Credential metadata without secret material.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiCredential"
+        default:
+          $ref: "#/components/responses/StandardError"
+    delete:
+      tags: [Credentials]
+      operationId: revokeApiCredential
+      summary: Revoke a tenant API credential
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "204":
+          description: Credential revoked.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+  /event-types:
+    get:
+      tags: [Events]
+      operationId: listEventTypes
+      summary: List registered integration-event contracts
+      description: Registry entries are namespace-qualified and versioned; only registered schemas may be published.
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+        - name: sourceModule
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Page of registered event types.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventTypePage"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /event-types/{eventType}/{schemaVersion}:
+    get:
+      tags: [Events]
+      operationId: getEventType
+      summary: Get a registered event schema and documentation
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - name: eventType
+          in: path
+          required: true
+          description: Namespace-qualified event type.
+          schema:
+            type: string
+        - name: schemaVersion
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Registered event schema metadata.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventType"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/events:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      tags: [Events]
+      operationId: listTenantEvents
+      summary: Query tenant-scoped event records
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+        - name: eventType
+          in: query
+          schema:
+            type: string
+        - name: aggregateId
+          in: query
+          schema:
+            type: string
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Page of tenant events; tenant identity is derived from authenticated context.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+    post:
+      tags: [Events]
+      operationId: publishTenantEvent
+      summary: Publish an integration event
+      description: |
+        Validates the event against its registered version and authenticated
+        tenant. The supplied tenant_id must equal the resolved tenant context.
+        Acceptance is recorded through the transactional outbox and delivery is
+        at least once; consumers deduplicate by event_id.
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntegrationEvent"
+      responses:
+        "202":
+          description: Event accepted for durable asynchronous delivery.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventAcceptance"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/event-subscriptions:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      tags: [Events]
+      operationId: listEventSubscriptions
+      summary: List tenant-scoped event subscriptions
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Page of subscriptions.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSubscriptionPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+    post:
+      tags: [Events]
+      operationId: createEventSubscription
+      summary: Subscribe an installed module to tenant events
+      description: |
+        A subscriber can receive only events for its assigned tenant;
+        cross-tenant filters are rejected. The subscription receives no events
+        accepted before activation. Previously assigned delivery obligations
+        remain subject to governed retries and replay.
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEventSubscriptionRequest"
+      responses:
+        "201":
+          description: Subscription registered.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSubscription"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/event-subscriptions/{subscriptionId}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/SubscriptionId"
+    get:
+      tags: [Events]
+      operationId: getEventSubscription
+      summary: Get a tenant event subscription
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Subscription metadata.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSubscription"
+        default:
+          $ref: "#/components/responses/StandardError"
+    patch:
+      tags: [Events]
+      operationId: updateEventSubscription
+      summary: Pause or resume a subscription
+      description: Pausing delivery does not discard accepted events or their delivery obligations.
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/UpdateEventSubscriptionRequest"
+      responses:
+        "200":
+          description: Updated subscription.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSubscription"
+        default:
+          $ref: "#/components/responses/StandardError"
+    delete:
+      tags: [Events]
+      operationId: deleteEventSubscription
+      summary: Unregister a subscription after assigned deliveries drain
+      description: |
+        Accepted deliveries remain obligations. Removal returns an asynchronous
+        operation when work is outstanding and does not erase pending,
+        in-flight, or dead-lettered deliveries.
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "202":
+          description: Unregistration is pending until assigned events are processed.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LifecycleOperation"
+        "204":
+          description: Subscription unregistered; no assigned deliveries remained.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/event-subscriptions/{subscriptionId}/failures:
+    get:
+      tags: [Events]
+      operationId: listSubscriptionFailures
+      summary: List persistent delivery failures
+      description: Returns dead-letter metadata without discarding the outstanding delivery obligation.
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/SubscriptionId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Page of failed delivery metadata.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliveryFailurePage"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/event-subscriptions/{subscriptionId}/failures/{eventId}/replay:
+    post:
+      tags: [Events]
+      operationId: replayFailedDelivery
+      summary: Replay an authorized failed event delivery
+      description: Replay preserves event identity and is idempotent; only authorized tenant operators may request it.
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/SubscriptionId"
+        - $ref: "#/components/parameters/EventId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Replay scheduled.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventAcceptance"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+  /tenants/{tenantId}/module-submissions:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      tags: [Modules]
+      operationId: submitModuleRelease
+      summary: Submit an extension release for operator review
+      description: |
+        An authorized partner submits the artifact and manifest without core
+        repository access. The platform records the authenticated tenant and
+        submitter, verifies the artifact digest, and keeps the release unavailable
+        for publication or installation pending operator review. Submission
+        never executes the artifact.
+        Creation audit evidence is server-derived: the reason is
+        authorized_partner_release_submission and the decision is create, with
+        no previous status; the exact submission and tenant IDs, actor, time,
+        immutable platform-computed digest, correlation context, and applicable
+        policy version are recorded.
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [manifest, artifact, artifactDigest]
+              properties:
+                manifest:
+                  $ref: "#/components/schemas/ModuleManifestSummary"
+                artifact:
+                  type: string
+                  format: binary
+                artifactDigest:
+                  type: string
+                  pattern: "^sha256:[a-f0-9]{64}$"
+              additionalProperties: false
+            encoding:
+              manifest:
+                contentType: application/json
+      responses:
+        "201":
+          description: Submitted release is awaiting review.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleSubmission"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/module-submissions/{submissionId}:
+    get:
+      tags: [Modules]
+      operationId: getTenantModuleSubmission
+      summary: Inspect an authorized tenant's extension submission
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/SubmissionId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Submission and review status.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleSubmission"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/modules/submissions:
+    get:
+      tags: [Modules, Platform]
+      operationId: listModuleSubmissionsForReview
+      summary: List submitted extension releases for operator review
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Page of submissions visible to the authorized operator.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleSubmissionPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/modules/submissions/{submissionId}:
+    get:
+      tags: [Modules, Platform]
+      operationId: getModuleSubmissionForReview
+      summary: Inspect a submitted release and review its artifact
+      description: Returns submission metadata and the artifact to an authorized operator without executing it.
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/SubmissionId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Submission metadata; the artifact is available at the authenticated artifact endpoint.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleSubmission"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/modules/submissions/{submissionId}/artifact:
+    get:
+      tags: [Modules, Platform]
+      operationId: getModuleSubmissionArtifact
+      summary: Download a submitted artifact for operator review
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/SubmissionId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Exact submitted artifact; verify its digest against submission metadata before review.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/modules/submissions/{submissionId}/review:
+    post:
+      tags: [Modules, Platform]
+      operationId: reviewModuleRelease
+      summary: Record an attributable review decision for the exact submitted artifact
+      description: |
+        Platform authority only. The review is separately recorded and bound to
+        the immutable platform-computed SHA-256 digest of the submitted artifact.
+        A positive review is required before the separate approval operation;
+        review identity is derived from the authenticated operator, never caller
+        policy input. The server rejects mismatched digests or submissions.
+        If-Match is checked against the submission resource version obtained by
+        re-fetching GET /platform/modules/submissions/{submissionId}, not against
+        a response body such as ModuleReview. An accepted positive or negative
+        review advances the submission version; a positive review that leaves
+        status pending_review also advances it because review state changes.
+        A negative review is pending_review -> rejected and terminal.
+        Audit reason is the explicit reason field when supplied; otherwise the
+        server derives a reason from the review decision. The standardsAssessment
+        is supporting evidence; an optional supportingEvidenceRef may identify
+        an additional durable evidence record.
+        Exact replay with the same Idempotency-Key and request is retry-safe and
+        has no additional transition; key reuse with a different request returns
+        409 idempotency_key_reused.
+        After authentication and authorization are revalidated, exact replay
+        resolution occurs before ETag/precondition evaluation: a replay of the
+        accepted original request returns its recorded outcome even if its
+        submitted If-Match is now stale. It is not evaluated as a fresh mutation.
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/SubmissionId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewModuleRequest"
+      responses:
+        "201":
+          description: Review decision recorded and audited.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleReview"
+        "409":
+          description: Invalid transition uses code lifecycle_conflict; reuse of an idempotency key for a different request uses code idempotency_key_reused.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "412":
+          description: Submission ETag is stale; re-fetch the submission and retry with its fresh ETag.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "428":
+          description: If-Match is missing for this submission mutation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/modules/submissions/{submissionId}/publication:
+    post:
+      tags: [Modules, Platform]
+      operationId: publishModuleSubmission
+      summary: Publish an approved extension release
+      description: |
+        Requires platform authority, successful manifest validation, and an
+        active review approval for the exact submitted artifact digest.
+        Unapproved, rejected, revoked, or changed artifacts cannot be published.
+        Publication audit evidence is server-derived: the reason is authorized
+        catalog publication after manifest and exact-digest validation, the
+        decision is published, and supporting evidence references the successful
+        manifest and active positive review/approval evidence.
+        If-Match is checked against the submission resource version obtained by
+        re-fetching GET /platform/modules/submissions/{submissionId}, not against
+        a ModuleCatalogEntry representation. Publication is approved -> published
+        only and does not install, activate, expose, or route-enable the module.
+        Exact replay with the same Idempotency-Key and request is retry-safe and
+        has no additional transition; key reuse with a different request returns
+        409 idempotency_key_reused.
+        After authentication and authorization are revalidated, exact replay
+        resolution occurs before ETag/precondition evaluation: a replay of the
+        accepted original publication returns its recorded outcome even if its
+        submitted If-Match is now stale. It is not evaluated as a fresh mutation.
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/SubmissionId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "201":
+          description: Approved release published to the catalog.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleCatalogEntry"
+        "409":
+          description: Invalid transition uses code lifecycle_conflict; reuse of an idempotency key for a different request uses code idempotency_key_reused.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "412":
+          description: Submission ETag is stale; re-fetch the submission and retry with its fresh ETag.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "428":
+          description: If-Match is missing for this submission mutation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/modules/submissions/{submissionId}/revocation:
+    post:
+      tags: [Modules, Platform]
+      operationId: revokeModuleSubmission
+      summary: Governedly revoke or withdraw a module submission
+      description: |
+        Platform authority only. Revocation is permitted only from
+        pending_review, approved, or published and changes the submission to
+        terminal revoked. Rejected and revoked are terminal and cannot be
+        revocation targets. The request artifactDigest must equal the submission's
+        immutable platform-computed SHA-256 digest.
+        If-Match is checked against the submission resource version obtained by
+        re-fetching GET /platform/modules/submissions/{submissionId}, not against
+        a prior review, approval, publication, or catalog response. Revoke this
+        exact submission once; re-fetching is required after a stale 412.
+        Revocation invalidates applicable approval and availability eligibility,
+        and any affected installation, route, or exposure is reconciled or
+        withdrawn by separate governed lifecycle controls. It does not discard
+        pending delivery obligations and is not an exposure operation.
+        The explicit reason is retained as the revocation decision rationale;
+        the audit record also contains the previous/new status, exact digest,
+        actor, time, tenant, correlation context, and policy version.
+        Exact replay with the same Idempotency-Key and request is retry-safe and
+        has no additional transition; key reuse with a different request returns
+        409 idempotency_key_reused.
+        After authentication and authorization are revalidated, exact replay
+        resolution occurs before ETag/precondition evaluation: a replay of the
+        accepted original revocation returns its recorded outcome even if its
+        submitted If-Match is now stale. It is not evaluated as a fresh mutation.
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/SubmissionId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeModuleRequest"
+      responses:
+        "200":
+          description: Submission revoked and reconciliatory lifecycle eligibility invalidated.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleSubmission"
+        "409":
+          description: Invalid transition uses code lifecycle_conflict; reuse of an idempotency key for a different request uses code idempotency_key_reused.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "412":
+          description: Submission ETag is stale; re-fetch the submission and retry with its fresh ETag.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "428":
+          description: If-Match is missing for this submission mutation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /modules/catalog:
+    get:
+      tags: [Modules]
+      operationId: listModuleCatalog
+      summary: Discover operator-approved module releases
+      description: |
+        Lists catalog metadata only. The catalog is not a business-module
+        implementation and does not authorize installation.
+      security:
+        - TenantJWT: []
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: language
+          in: query
+          schema:
+            type: string
+        - name: compatibility
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Page of available module release metadata.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleCatalogPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /modules/catalog/{moduleName}/{version}:
+    get:
+      tags: [Modules]
+      operationId: getCatalogModule
+      summary: Read module release metadata and documentation
+      security:
+        - TenantJWT: []
+        - PlatformJWT: []
+      parameters:
+        - name: moduleName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Module manifest summary, compatibility, approval status, and documentation references.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleCatalogEntry"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/modules/approvals:
+    post:
+      tags: [Modules, Platform]
+      operationId: approveModuleRelease
+      summary: Record a separate operator approval decision for a module release
+      description: |
+        Platform authority only. A positive approval requires a positive review
+        decision for the same immutable submitted artifact digest and its
+        standards assessment. The server enforces the deployment-configured,
+        versioned reviewer/approver separation policy for positive approval.
+        The caller never supplies or overrides policy. Both reviewer and
+        approver identities and the effective policy version are retained in
+        the immutable result. A rejected approval cannot be published or
+        installed. A positive approval is required before publication or
+        installation.
+        If-Match is checked against the submission resource version obtained by
+        re-fetching GET /platform/modules/submissions/{submissionId}; submissionId
+        and artifactDigest are supplied by the request and must both match the
+        exact submission and immutable platform-computed digest. Do not use an
+        ETag from a ModuleApproval response. A positive approval is
+        pending_review -> approved; a negative approval is pending_review ->
+        rejected and terminal. Exact replay with the same Idempotency-Key and
+        request is retry-safe and has no additional transition; key reuse with a
+        different request returns 409 idempotency_key_reused.
+        Audit reason is the explicit reason field when supplied; otherwise it is
+        derived from the bound review decision and its
+        standards assessment supporting evidence. An optional supportingEvidenceRef
+        may identify additional durable evidence.
+        After authentication and authorization are revalidated, exact replay
+        resolution occurs before ETag/precondition evaluation: a replay of the
+        accepted original approval returns its recorded outcome even if its
+        submitted If-Match is now stale. It is not evaluated as a fresh mutation.
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveModuleRequest"
+      responses:
+        "201":
+          description: Approval decision recorded and audited.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleApproval"
+        "409":
+          description: Invalid transition uses code lifecycle_conflict; reuse of an idempotency key for a different request uses code idempotency_key_reused.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "412":
+          description: Submission ETag is stale; re-fetch the submission and retry with its fresh ETag.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "428":
+          description: If-Match is missing for this submission mutation.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/modules:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      tags: [Modules]
+      operationId: listInstalledModules
+      summary: List modules enabled for a tenant
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Page of tenant module lifecycle records.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledModulePage"
+        default:
+          $ref: "#/components/responses/StandardError"
+    post:
+      tags: [Modules]
+      operationId: installModule
+      summary: Install an approved module release for a tenant
+      description: |
+        Requires tenant administrator authority and prior platform-operator
+        approval of the exact artifact digest. Resolves dependencies, validates
+        manifest and enforced standards, detects dependency cycles, and starts
+        only reviewed code. This creates a tenant-scoped enablement referencing
+        the shared approved module deployment; it cannot change another tenant's
+        enablement. New installs never receive an installed-module standards
+        grace period.
+      x-authorized-roles: [tenant_admin]
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallModuleRequest"
+      responses:
+        "202":
+          description: Installation lifecycle operation accepted.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LifecycleOperation"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/modules/{moduleId}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - $ref: "#/components/parameters/ModuleId"
+    get:
+      tags: [Modules]
+      operationId: getInstalledModule
+      summary: Read tenant module status and manifest metadata
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Tenant module lifecycle record.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledModule"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/modules/{moduleId}/lifecycle:
+    put:
+      tags: [Modules]
+      operationId: transitionModuleLifecycle
+      summary: Start or stop a tenant module
+      description: |
+        Applies an authorized lifecycle transition to reviewed code only.
+        Failure disables the failed module and transitive dependents while
+        leaving the core and unaffected modules available.
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/ModuleId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModuleLifecycleRequest"
+      responses:
+        "202":
+          description: Lifecycle transition accepted.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LifecycleOperation"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/modules/{moduleId}/uninstallation:
+    post:
+      tags: [Modules]
+      operationId: uninstallModule
+      summary: Drain and uninstall a tenant module
+      description: |
+        Uninstallation enters pending state and stops accepting new work, then
+        drains already-assigned event deliveries. It remains pending until every
+        assigned event is processed, including persistent failures; failures
+        require authorized replay or recovery and are never silently waived.
+        The tenant enablement is removed only after the drain condition is
+        satisfied. Shared code cannot be stopped or unregistered while another
+        tenant still has an active enablement.
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/ModuleId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "202":
+          description: Uninstallation is draining assigned events.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LifecycleOperation"
+        "200":
+          description: Uninstallation completed because no assigned deliveries remained.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledModule"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/modules/operations/{operationId}:
+    get:
+      tags: [Modules, Platform]
+      operationId: getModuleLifecycleOperation
+      summary: Get module lifecycle operation status
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/OperationId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Lifecycle operation state and safe diagnostic summary.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LifecycleOperation"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/operations/{operationId}:
+    get:
+      tags: [Modules]
+      operationId: getTenantLifecycleOperation
+      summary: Get a lifecycle operation in the authenticated tenant
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/OperationId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Lifecycle operation state and safe diagnostic summary.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LifecycleOperation"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+  /scaffolds/modules:
+    post:
+      tags: [Scaffolding]
+      operationId: scaffoldModule
+      summary: Generate a module from the current governed template
+      description: |
+        Returns an artifact or generation result containing a manifest,
+        directory convention, domain/event/query templates, tests, and current
+        standards metadata. Scaffolding does not register, approve, or install
+        executable module code.
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScaffoldModuleRequest"
+      responses:
+        "201":
+          description: Scaffold generated.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScaffoldResult"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /scaffolds/standards:
+    get:
+      tags: [Scaffolding]
+      operationId: getCurrentScaffoldStandards
+      summary: Get current scaffold template and enforced standards version
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Current template and standards metadata.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScaffoldStandards"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /scaffolds/templates/{templateVersion}:
+    get:
+      tags: [Scaffolding]
+      operationId: getScaffoldTemplate
+      summary: Download a versioned scaffold template
+      description: Used by governed CLI and SDK consumers to refresh templates without embedding independent standards.
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - name: templateVersion
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Versioned template archive and standards metadata.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScaffoldTemplate"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+  /tenants/{tenantId}/configurations:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      tags: [Configuration]
+      operationId: listTenantConfigurations
+      summary: List effective tenant configuration metadata
+      description: Secret values are always redacted. Source priority is environment, file, then database; scope specificity is resolved within a source.
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+        - name: moduleId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Effective configuration metadata.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/configurations/{key}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+    get:
+      tags: [Configuration]
+      operationId: getTenantConfiguration
+      summary: Get effective configuration for a tenant
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - name: moduleId
+          in: query
+          description: Optional module scope; scope specificity is applied within source priority.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Effective setting; secret values remain redacted.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationSetting"
+        default:
+          $ref: "#/components/responses/StandardError"
+    put:
+      tags: [Configuration]
+      operationId: putTenantConfiguration
+      summary: Validate and update a tenant configuration setting
+      description: |
+        Requires configuration-management authority and an audit reason.
+        Invalid updates leave the last valid value in force. Non-critical
+        settings apply without restart. A database URL update is validated,
+        stored only as an external secret reference, and staged until restart;
+        no active connection is switched by this request. Audit records retain
+        before/after non-secret values and redacted references or versions only
+        for secrets.
+      x-authorized-roles: [tenant_admin]
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IfMatchOptional"
+        - $ref: "#/components/parameters/IfNoneMatch"
+        - name: moduleId
+          in: query
+          description: Required when scope is module; tenant and module scopes cannot target another tenant.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutTenantConfigurationRequest"
+      responses:
+        "200":
+          description: Setting validated and saved; status indicates immediate or staged activation.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationSetting"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/configurations:
+    get:
+      tags: [Configuration, Platform]
+      operationId: listPlatformConfigurations
+      summary: List global configuration metadata
+      description: Platform operator authority only; secret material is never returned.
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Page of global settings.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/configurations/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+    put:
+      tags: [Configuration, Platform]
+      operationId: putPlatformConfiguration
+      summary: Validate and update a global platform setting
+      description: Uses the same precedence, validation, redaction, audit, and restart-staging rules as tenant settings.
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IfMatchOptional"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutGlobalConfigurationRequest"
+      responses:
+        "200":
+          description: Validated global setting and activation state.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationSetting"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+  /platform/standards:
+    get:
+      tags: [Governance]
+      operationId: listStandards
+      summary: List published platform standards
+      security:
+        - TenantJWT: []
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Page of standards versions and enforcement state.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StandardsVersionPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+    post:
+      tags: [Governance]
+      operationId: publishStandards
+      summary: Publish a versioned platform standards release
+      description: |
+        Platform authority only. Grace can apply only to modules already
+        installed when this release is published. It never weakens standards
+        enforced for new installations and cannot waive security or tenant
+        isolation requirements.
+      x-authority: platform_operator
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishStandardsRequest"
+      responses:
+        "201":
+          description: Standards release published and audited.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StandardsVersion"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/standards/{version}:
+    get:
+      tags: [Governance]
+      operationId: getStandardsVersion
+      summary: Get a standards release and its migration guidance
+      security:
+        - TenantJWT: []
+        - PlatformJWT: []
+      parameters:
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Standards version.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StandardsVersion"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /tenants/{tenantId}/compliance-reports:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      tags: [Governance]
+      operationId: listComplianceReports
+      summary: List tenant module compliance reports
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+        - name: moduleId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Page of compliance assessments and history.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplianceReportPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+    post:
+      tags: [Governance]
+      operationId: createComplianceReport
+      summary: Run governance checks for installed tenant modules
+      description: Checks manifest/schema, event contracts, query interfaces, naming, and currently applicable standards.
+      x-authorized-roles: [tenant_admin, governance_officer]
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateComplianceReportRequest"
+      responses:
+        "202":
+          description: Compliance assessment accepted.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LifecycleOperation"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/compliance-reports/{reportId}:
+    get:
+      tags: [Governance, Platform]
+      operationId: getComplianceReport
+      summary: Get a compliance report
+      description: A tenant principal may access only reports for its tenant; a platform operator may access global reports.
+      security:
+        - TenantJWT: []
+        - PlatformJWT: []
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Compliance report with violations and remediation references.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplianceReport"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+  /tenants/{tenantId}/audit-records:
+    get:
+      tags: [Audit]
+      operationId: listTenantAuditRecords
+      summary: Query immutable tenant audit records
+      description: Includes authentication, configuration, identity, module, event-administration, and governance actions; secret values are never present.
+      x-authorized-roles: [tenant_admin, governance_officer]
+      security:
+        - TenantJWT: []
+      parameters:
+        - $ref: "#/components/parameters/DelegatedTenantGrant"
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+        - name: actorId
+          in: query
+          schema:
+            type: string
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Page of immutable audit records.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditRecordPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /platform/audit-records:
+    get:
+      tags: [Audit, Platform]
+      operationId: listPlatformAuditRecords
+      summary: Query platform-wide immutable audit records
+      security:
+        - PlatformJWT: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+        - name: tenantId
+          in: query
+          schema:
+            type: string
+        - name: actorId
+          in: query
+          schema:
+            type: string
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Page of platform audit records.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditRecordPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+  /documentation/search:
+    get:
+      tags: [Documentation]
+      operationId: searchDocumentation
+      summary: Search platform developer documentation
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - name: section
+          in: query
+          schema:
+            type: string
+            enum: [architecture, api-reference, module-examples, troubleshooting, standards]
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Ranked documentation search results.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentationSearchPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /documentation/pages/{slug}:
+    get:
+      tags: [Documentation]
+      operationId: getDocumentationPage
+      summary: Read a documentation page
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+      responses:
+        "200":
+          description: Documentation page with versioned references.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentationPage"
+        default:
+          $ref: "#/components/responses/StandardError"
+  /telemetry:
+    post:
+      tags: [Platform]
+      operationId: ingestModuleTelemetry
+      summary: Ingest tenant-scoped module telemetry
+      description: |
+        SDK-facing ingestion for structured logs, spans, and metric points.
+        Tenant and module identity are derived from authenticated context and
+        verified against an installed module; caller-supplied attributes cannot
+        change either identity. Payloads must be bounded and scrubbed of secrets
+        and sensitive data. Correlation and trace context are propagated.
+      security:
+        - TenantJWT: []
+        - ApiCredential: []
+      parameters:
+        - $ref: "#/components/parameters/CorrelationId"
+        - $ref: "#/components/parameters/Traceparent"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TelemetryBatch"
+      responses:
+        "202":
+          description: Telemetry accepted for asynchronous export.
+          headers:
+            X-Correlation-Id:
+              $ref: "#/components/headers/CorrelationId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemetryAcceptance"
+        default:
+          $ref: "#/components/responses/StandardError"
+
+components:
+  securitySchemes:
+    TenantJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Short-lived tenant access token. Required validated claims include iss,
+        aud, sub, tenant_id, roles, iat, and exp. The authenticated tenant is
+        resolved from the verified token and membership, never trusted from a
+        caller-controlled tenant header or body.
+        For delegated parent-to-child administration, send
+        X-Delegated-Tenant-Grant. The server resolves the grant and replaces
+        effective tenant context with the exact child tenant; no hierarchy
+        inheritance or transitive access is implied.
+    PlatformJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Separately authenticated platform-operator token with platform
+        authority, audience, issuer, subject, iat, and exp claims. Tenant roles
+        cannot grant platform authority. Platform operations are explicitly
+        authorized and audited.
+    ApiCredential:
+      type: apiKey
+      in: header
+      name: X-API-Credential
+      description: |
+        Tenant-bound, permission-scoped credential. The server resolves its
+        tenant from the credential verifier; any path tenant must match.
+        Credential secrets are shown only on initial issuance.
+  parameters:
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      description: |
+        Must equal the authenticated tenant context except on explicitly
+        platform-authorized operations or explicitly governed delegated
+        parent-to-child operations. Delegated requests must also carry
+        X-Delegated-Tenant-Grant and the server resolves effective context to
+        this child tenant; this path value never itself grants authority.
+      schema:
+        type: string
+        minLength: 1
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    CredentialId:
+      name: credentialId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    SubscriptionId:
+      name: subscriptionId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    EventId:
+      name: eventId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ModuleId:
+      name: moduleId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    SubmissionId:
+      name: submissionId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    OperationId:
+      name: operationId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Client-supplied correlation identifier; validated, bounded, and propagated or generated by the platform.
+      schema:
+        type: string
+        maxLength: 128
+    Traceparent:
+      name: traceparent
+      in: header
+      required: false
+      description: W3C Trace Context parent; validated and propagated, or a new trace is created when absent.
+      schema:
+        type: string
+        minLength: 1
+    DelegatedTenantGrant:
+      name: X-Delegated-Tenant-Grant
+      in: header
+      required: false
+      description: |
+        Opaque grant identifier for an explicit child-owned grant permitting
+        the supplied parent TenantJWT principal to perform only the granted
+        canonical operation permissions against the child tenant. The server
+        rechecks the direct parent relationship and grant on every request.
+        Effective tenant context is the child; hierarchy alone grants nothing.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Stable opaque key for a logical state-changing request. Scope is principal, tenant (if applicable), and operation. Concurrent duplicate keys produce one effect; a key reused with a different request returns 409. Each deployment defines key retention sufficient to cover its supported retry and asynchronous completion windows, including applicable retries after completion. Asynchronous operation keys are never deleted before completion; no universal numeric retention period is prescribed.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Strong ETag of the version being changed; missing or stale preconditions fail without applying the mutation.
+      schema:
+        type: string
+    IfMatchOptional:
+      name: If-Match
+      in: header
+      required: false
+      description: Required when replacing an existing resource; mutually exclusive with If-None-Match.
+      schema:
+        type: string
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: Use * only when creating a resource that does not yet exist; mutually exclusive with If-Match. Exactly one concurrency precondition is required.
+      schema:
+        type: string
+        const: "*"
+    PageToken:
+      name: pageToken
+      in: query
+      required: false
+      schema:
+        type: string
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+  headers:
+    CorrelationId:
+      description: Correlation identifier for this request and downstream work.
+      schema:
+        type: string
+    ETag:
+      description: Strong opaque entity version used for conditional updates.
+      schema:
+        type: string
+  responses:
+    StandardError:
+      description: RFC 9457-style error. Error responses include a stable code and correlation identifier; details never contain credentials or secret values.
+      headers:
+        X-Correlation-Id:
+          $ref: "#/components/headers/CorrelationId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details extended with stable platform error code and correlation context.
+      required: [type, title, status, code, correlationId]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+          description: Safe diagnostic; must not disclose secrets or cross-tenant resource existence.
+        instance:
+          type: string
+          format: uri-reference
+        code:
+          type: string
+          enum:
+            - authentication_required
+            - invalid_credentials
+            - authorization_denied
+            - tenant_context_required
+            - tenant_context_mismatch
+            - tenant_suspended
+            - resource_not_found
+            - validation_failed
+            - idempotency_key_reused
+            - precondition_required
+            - precondition_failed
+            - conflict
+            - module_not_approved
+            - module_standards_not_met
+            - dependency_cycle
+            - lifecycle_conflict
+            - event_schema_invalid
+            - event_delivery_pending
+            - secret_unavailable
+            - rate_limited
+            - dependency_unavailable
+        correlationId:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+      additionalProperties: true
+    FieldError:
+      type: object
+      required: [pointer, code, message]
+      properties:
+        pointer:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+      additionalProperties: false
+    HealthStatus:
+      type: object
+      required: [status, timestamp]
+      properties:
+        status:
+          type: string
+          enum: [ok, ready]
+        timestamp:
+          type: string
+          format: date-time
+      additionalProperties: false
+    TenantStatus:
+      type: string
+      enum: [active, suspended]
+    Tenant:
+      type: object
+      required: [id, name, slug, status, parentTenantId, createdAt, updatedAt, version]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          minLength: 1
+        slug:
+          type: string
+          pattern: "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          maxLength: 63
+          description: Globally unique under case-insensitive comparison.
+        status:
+          $ref: "#/components/schemas/TenantStatus"
+        parentTenantId:
+          type: [string, "null"]
+          description: Direct parent tenant. This relationship is organizational metadata only and never implies delegated access.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+    CreateTenantRequest:
+      type: object
+      required: [name, slug]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        slug:
+          type: string
+          pattern: "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          maxLength: 63
+          description: Globally unique under case-insensitive comparison; comparison and collision handling are defined by the platform.
+        parentTenantId:
+          type: string
+          description: Optional direct-parent relationship set only by platform-controlled provisioning; this field grants no access.
+      additionalProperties: false
+    UpdateTenantRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        slug:
+          type: string
+          pattern: "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          maxLength: 63
+          description: Globally unique under case-insensitive comparison, regardless of parent-child relationships.
+      additionalProperties: false
+    TenantSuspensionRequest:
+      type: object
+      required: [status, reason]
+      properties:
+        status:
+          $ref: "#/components/schemas/TenantStatus"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+      additionalProperties: false
+    CreateDelegatedAdminGrantRequest:
+      type: object
+      required: [parentTenantId, permissions]
+      properties:
+        parentTenantId:
+          type: string
+          minLength: 1
+          description: Must equal the authenticated child's direct parent.
+        permissions:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+          description: Explicit canonical operationIds permitted for delegated child-context administration.
+      additionalProperties: false
+    DelegatedAdminGrant:
+      type: object
+      required: [id, childTenantId, parentTenantId, permissions, status, createdBy, createdAt, updatedAt, version]
+      properties:
+        id:
+          type: string
+        childTenantId:
+          type: string
+        parentTenantId:
+          type: string
+        permissions:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        status:
+          type: string
+          enum: [active, revoked]
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+    DelegatedAdminGrantPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/DelegatedAdminGrant"
+    TenantPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/Tenant"
+    TenantLoginRequest:
+      type: object
+      required: [tenantId, email, password]
+      properties:
+        tenantId:
+          type: string
+        email:
+          type: string
+          format: email
+          description: Account lookup is case-insensitive within the supplied tenant only.
+        password:
+          type: string
+          format: password
+          writeOnly: true
+      additionalProperties: false
+    PlatformLoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          writeOnly: true
+      additionalProperties: false
+    AccessTokenResponse:
+      type: object
+      required: [accessToken, tokenType, expiresIn, tenantId, userId, roles]
+      properties:
+        accessToken:
+          type: string
+          description: Short-lived signed JWT; never place in URLs or logs.
+        tokenType:
+          type: string
+          const: Bearer
+        expiresIn:
+          type: integer
+          const: 900
+          description: Access token lifetime in seconds.
+        tenantId:
+          type: string
+        userId:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantRole"
+      additionalProperties: false
+    PlatformAccessTokenResponse:
+      type: object
+      required: [accessToken, tokenType, expiresIn, authority]
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          const: Bearer
+        expiresIn:
+          type: integer
+          const: 900
+        authority:
+          type: string
+          const: platform_operator
+      additionalProperties: false
+    TenantRole:
+      type: string
+      enum:
+        - tenant_admin
+        - user
+        - billing_manager
+        - developer
+        - governance_officer
+    User:
+      type: object
+      required: [id, tenantId, email, displayName, roles, status, createdAt, version]
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+        roles:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/TenantRole"
+        status:
+          type: string
+          enum: [active, suspended]
+        createdAt:
+          type: string
+          format: date-time
+        lastLoginAt:
+          type: [string, "null"]
+          format: date-time
+        version:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+    CreateUserRequest:
+      type: object
+      required: [email, password, displayName, roles]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Must be unique case-insensitively within the authenticated tenant; the same email may exist in another tenant.
+        password:
+          type: string
+          format: password
+          writeOnly: true
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        roles:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/TenantRole"
+      additionalProperties: false
+    BootstrapTenantAdministratorRequest:
+      type: object
+      required: [email, password, displayName]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Must be unique case-insensitively within the target tenant; the same email may exist in another tenant.
+        password:
+          type: string
+          format: password
+          writeOnly: true
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+      additionalProperties: false
+    UpdateUserRequest:
+      type: object
+      minProperties: 1
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        status:
+          type: string
+          enum: [active, suspended]
+      additionalProperties: false
+    ReplaceRolesRequest:
+      type: object
+      required: [roles]
+      properties:
+        roles:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/TenantRole"
+      additionalProperties: false
+    UserPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/User"
+    IssueApiCredentialRequest:
+      type: object
+      required: [name, permissions]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        permissions:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: ["events:read", "events:publish", "events:subscribe", "scaffolds:read", "scaffolds:write", "configuration:read", "telemetry:write"]
+            description: Credential scopes from the governed catalog, limited by the issuer's current authority.
+        expiresAt:
+          type: [string, "null"]
+          format: date-time
+      additionalProperties: false
+    ApiCredential:
+      type: object
+      required: [id, tenantId, ownerUserId, name, prefix, permissions, createdAt, status, version]
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        ownerUserId:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+          description: Non-secret lookup prefix only.
+        permissions:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: [string, "null"]
+          format: date-time
+        lastUsedAt:
+          type: [string, "null"]
+          format: date-time
+        status:
+          type: string
+          enum: [active, revoked, expired]
+        version:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+    ApiCredentialIssuance:
+      type: object
+      required: [id, tenantId, ownerUserId, name, prefix, permissions, createdAt, status, version, secret]
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        ownerUserId:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+          description: Non-secret lookup prefix only.
+        permissions:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: [string, "null"]
+          format: date-time
+        lastUsedAt:
+          type: [string, "null"]
+          format: date-time
+        status:
+          type: string
+          enum: [active, revoked, expired]
+        version:
+          type: integer
+          minimum: 1
+        secret:
+          type: string
+          readOnly: true
+          description: One-time secret, returned only in the initial successful issuance response.
+          x-one-time-disclosure: true
+      additionalProperties: false
+    ApiCredentialPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ApiCredential"
+    IntegrationEvent:
+      $ref: "./integration-events-v1.yaml"
+    EventAcceptance:
+      type: object
+      required: [eventId, status, acceptedAt]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [accepted, replay_scheduled]
+        acceptedAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+    EventType:
+      type: object
+      required: [eventType, schemaVersion, sourceModule, documentation, compatibility]
+      properties:
+        eventType:
+          type: string
+        schemaVersion:
+          type: string
+        sourceModule:
+          type: string
+        documentation:
+          type: string
+          format: uri-reference
+        compatibility:
+          type: string
+          enum: [backward_compatible, migration_required]
+        schema:
+          type: object
+          description: Registered JSON Schema for the event data.
+      additionalProperties: false
+    EventTypePage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/EventType"
+    EventRecord:
+      type: object
+      required: [event_id, aggregate_id, tenant_id, timestamp, event_type, schema_version, source_module, data, metadata, deliveryStatus]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        aggregate_id:
+          type: string
+        tenant_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        event_type:
+          type: string
+        schema_version:
+          type: string
+        source_module:
+          type: string
+        data:
+          type: object
+        metadata:
+          type: object
+          required: [correlation_id]
+          properties:
+            correlation_id:
+              type: string
+              minLength: 1
+              maxLength: 128
+            traceparent:
+              type: string
+            causation_id:
+              type: string
+            idempotency_key:
+              type: string
+            content_type:
+              type: string
+        occurred_at:
+          type: string
+          format: date-time
+        deliveryStatus:
+          type: string
+          enum: [accepted, pending, delivered, retrying, dead_lettered, archived]
+      additionalProperties: false
+    EventPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/EventRecord"
+    CreateEventSubscriptionRequest:
+      type: object
+      required: [subscriberModuleId, eventTypes]
+      properties:
+        subscriberModuleId:
+          type: string
+        eventTypes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            description: Registered namespace-qualified event type, optionally pinned by schema version.
+        aggregateIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        retentionDays:
+          type: integer
+          minimum: 1
+          description: Optional tenant-scoped archive retention override; pending obligations are never expired.
+      additionalProperties: false
+    EventSubscription:
+      type: object
+      required: [id, tenantId, subscriberModuleId, eventTypes, status, createdAt, version]
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        subscriberModuleId:
+          type: string
+        eventTypes:
+          type: array
+          items:
+            type: string
+        aggregateIds:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [active, paused, draining, failed, removed]
+        createdAt:
+          type: string
+          format: date-time
+        pendingDeliveries:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+    EventSubscriptionPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/EventSubscription"
+    UpdateEventSubscriptionRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [active, paused]
+      additionalProperties: false
+    DeliveryFailure:
+      type: object
+      required: [eventId, subscriptionId, attempts, firstFailedAt, lastFailedAt, status]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        subscriptionId:
+          type: string
+        attempts:
+          type: integer
+          minimum: 1
+        firstFailedAt:
+          type: string
+          format: date-time
+        lastFailedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          const: dead_lettered
+        safeDiagnostic:
+          type: string
+          description: Redacted diagnostic; payloads and secrets are excluded.
+      additionalProperties: false
+    DeliveryFailurePage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/DeliveryFailure"
+    ModuleCatalogEntry:
+      type: object
+      required: [name, version, description, compatibility, standardsVersion, manifest, approval, artifactDigest]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        language:
+          type: string
+        compatibility:
+          type: string
+        standardsVersion:
+          type: string
+        manifest:
+          $ref: "#/components/schemas/ModuleManifestSummary"
+        approval:
+          $ref: "#/components/schemas/ModuleApprovalSummary"
+        artifactDigest:
+          type: string
+          pattern: "^sha256:[a-f0-9]{64}$"
+        dependencies:
+          type: array
+          items:
+            type: string
+        documentation:
+          type: array
+          items:
+            type: string
+            format: uri-reference
+      additionalProperties: false
+    ModuleManifestSummary:
+      type: object
+      required: [name, version, standardsVersion, dependencies, permissions, eventContracts, queryContracts]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        standardsVersion:
+          type: string
+        dependencies:
+          type: array
+          items:
+            type: string
+        permissions:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        eventContracts:
+          type: array
+          items:
+            type: object
+            required: [eventType, schemaVersion]
+            properties:
+              eventType:
+                type: string
+              schemaVersion:
+                type: string
+              documentation:
+                type: string
+                format: uri-reference
+            additionalProperties: false
+        queryContracts:
+          type: array
+          items:
+            type: object
+            required: [name, version]
+            properties:
+              name:
+                type: string
+              version:
+                type: string
+              documentation:
+                type: string
+                format: uri-reference
+            additionalProperties: false
+      additionalProperties: false
+    ModuleSubmission:
+      type: object
+      required: [id, tenantId, submittedBy, submittedAt, manifest, artifactDigest, status]
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        submittedBy:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+        manifest:
+          $ref: "#/components/schemas/ModuleManifestSummary"
+        artifactDigest:
+          type: string
+          pattern: "^sha256:[a-f0-9]{64}$"
+        status:
+          type: string
+          enum: [pending_review, approved, rejected, published, revoked]
+      additionalProperties: false
+    ModuleSubmissionPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ModuleSubmission"
+    ModuleCatalogPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ModuleCatalogEntry"
+    ModuleApprovalSummary:
+      type: object
+      required: [status, reviewedAt, reviewedBy, approvedAt, approvedBy, artifactDigest, policyVersion]
+      properties:
+        status:
+          type: string
+          const: approved
+        reviewedAt:
+          type: string
+          format: date-time
+        reviewedBy:
+          type: string
+        approvedAt:
+          type: string
+          format: date-time
+        approvedBy:
+          type: string
+        artifactDigest:
+          type: string
+          pattern: "^sha256:[a-f0-9]{64}$"
+        policyVersion:
+          type: string
+          minLength: 1
+      additionalProperties: false
+    ApproveModuleRequest:
+      type: object
+      required: [submissionId, reviewId, artifactDigest, decision]
+      properties:
+        submissionId:
+          type: string
+          minLength: 1
+        reviewId:
+          type: string
+          minLength: 1
+          description: Identifies the review decision bound to this submission and artifact digest.
+        artifactDigest:
+          type: string
+          pattern: "^sha256:[a-f0-9]{64}$"
+        decision:
+          type: string
+          enum: [approved, rejected]
+          description: A positive approval requires a positive review of the same artifact digest.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        supportingEvidenceRef:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Optional durable reference supplementing the bound review and standards evidence.
+      additionalProperties: false
+    RevokeModuleRequest:
+      type: object
+      required: [artifactDigest, reason]
+      properties:
+        artifactDigest:
+          type: string
+          pattern: "^sha256:[a-f0-9]{64}$"
+          description: Immutable platform-computed digest of the exact submission being revoked.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+      additionalProperties: false
+    ReviewModuleRequest:
+      type: object
+      required: [artifactDigest, decision, standardsAssessment]
+      properties:
+        artifactDigest:
+          type: string
+          pattern: "^sha256:[a-f0-9]{64}$"
+        decision:
+          type: string
+          enum: [approved, rejected]
+        standardsAssessment:
+          type: string
+          minLength: 1
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        supportingEvidenceRef:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: Optional durable reference supplementing standardsAssessment as decision evidence.
+      additionalProperties: false
+    ModuleReview:
+      type: object
+      required: [id, submissionId, artifactDigest, decision, standardsAssessment, reviewedAt, reviewedBy]
+      properties:
+        id:
+          type: string
+        submissionId:
+          type: string
+        artifactDigest:
+          type: string
+          pattern: "^sha256:[a-f0-9]{64}$"
+        decision:
+          type: string
+          enum: [approved, rejected]
+        standardsAssessment:
+          type: string
+        reviewedAt:
+          type: string
+          format: date-time
+        reviewedBy:
+          type: string
+        reason:
+          type: string
+      additionalProperties: false
+    ModuleApproval:
+      type: object
+      required: [id, submissionId, reviewId, moduleName, version, artifactDigest, decision, standardsVersion, reviewedAt, reviewedBy, approvedAt, approvedBy, policyVersion]
+      properties:
+        id:
+          type: string
+        submissionId:
+          type: string
+        reviewId:
+          type: string
+        moduleName:
+          type: string
+        version:
+          type: string
+        artifactDigest:
+          type: string
+          pattern: "^sha256:[a-f0-9]{64}$"
+        decision:
+          type: string
+          enum: [approved, rejected, revoked]
+        standardsVersion:
+          type: string
+        reviewedAt:
+          type: string
+          format: date-time
+        reviewedBy:
+          type: string
+        approvedAt:
+          type: string
+          format: date-time
+        approvedBy:
+          type: string
+        policyVersion:
+          type: string
+          minLength: 1
+        reason:
+          type: string
+      additionalProperties: false
+    InstallModuleRequest:
+      type: object
+      required: [moduleName, version, artifactDigest]
+      properties:
+        moduleName:
+          type: string
+        version:
+          type: string
+        artifactDigest:
+          type: string
+          pattern: "^sha256:[a-f0-9]{64}$"
+      additionalProperties: false
+    InstalledModule:
+      type: object
+      required: [id, tenantId, name, version, artifactDigest, standardsVersion, status, dependencies, createdAt, updatedAt, versionTag]
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        artifactDigest:
+          type: string
+        standardsVersion:
+          type: string
+        status:
+          type: string
+          enum: [registered, validating, starting, running, stopping, stopped, failed, disabled, uninstall_pending, removed]
+        dependencies:
+          type: array
+          items:
+            type: string
+        dependentModules:
+          type: array
+          items:
+            type: string
+        pendingDeliveries:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        versionTag:
+          type: integer
+          minimum: 1
+        failureSummary:
+          type: string
+          description: Safe diagnostic; no secret values.
+      additionalProperties: false
+    InstalledModulePage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/InstalledModule"
+    ModuleLifecycleRequest:
+      type: object
+      required: [action, reason]
+      properties:
+        action:
+          type: string
+          enum: [start, stop]
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+      additionalProperties: false
+    LifecycleOperation:
+      type: object
+      required: [id, resourceId, operation, status, submittedAt]
+      properties:
+        id:
+          type: string
+        resourceId:
+          type: string
+        operation:
+          type: string
+          enum: [install, start, stop, uninstall, unregister, compliance_check]
+        status:
+          type: string
+          enum: [pending, running, blocked, succeeded, failed]
+        submittedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: [string, "null"]
+          format: date-time
+        pendingDeliveries:
+          type: integer
+          minimum: 0
+        safeDiagnostic:
+          type: string
+      additionalProperties: false
+    ScaffoldModuleRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z][a-z0-9-]*$"
+          maxLength: 63
+        standardsVersion:
+          type: string
+          description: Optional requested template version; unsupported or unenforced versions are rejected.
+        outputFormat:
+          type: string
+          enum: [archive, manifest]
+          default: archive
+      additionalProperties: false
+    ScaffoldResult:
+      type: object
+      required: [moduleName, standardsVersion, templateVersion, generatedAt, artifact, included]
+      properties:
+        moduleName:
+          type: string
+        standardsVersion:
+          type: string
+        templateVersion:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        artifact:
+          type: object
+          required: [mediaType, downloadUrl, expiresAt]
+          properties:
+            mediaType:
+              type: string
+            downloadUrl:
+              type: string
+              format: uri
+            expiresAt:
+              type: string
+              format: date-time
+          additionalProperties: false
+        included:
+          type: array
+          minItems: 6
+          uniqueItems: true
+          items:
+            type: string
+            enum: [module_manifest, domain_model, event_contract, query_interface, tests, governance_files]
+      additionalProperties: false
+    ScaffoldStandards:
+      type: object
+      required: [standardsVersion, templateVersion, enforcedForNewInstallations, updatedAt]
+      properties:
+        standardsVersion:
+          type: string
+        templateVersion:
+          type: string
+        enforcedForNewInstallations:
+          type: boolean
+          const: true
+        updatedAt:
+          type: string
+          format: date-time
+        migrationGuide:
+          type: string
+          format: uri-reference
+      additionalProperties: false
+    ScaffoldTemplate:
+      type: object
+      required: [templateVersion, standardsVersion, artifact]
+      properties:
+        templateVersion:
+          type: string
+        standardsVersion:
+          type: string
+        artifact:
+          type: object
+          required: [mediaType, downloadUrl, expiresAt, digest]
+          properties:
+            mediaType:
+              type: string
+            downloadUrl:
+              type: string
+              format: uri
+            expiresAt:
+              type: string
+              format: date-time
+            digest:
+              type: string
+              pattern: "^sha256:[a-f0-9]{64}$"
+          additionalProperties: false
+      additionalProperties: false
+    ConfigurationScope:
+      type: string
+      enum: [global, tenant, module]
+    ConfigurationSource:
+      type: string
+      enum: [environment, file, database]
+    PutConfigurationRequest:
+      type: object
+      required: [scope, source, reason]
+      properties:
+        scope:
+          $ref: "#/components/schemas/ConfigurationScope"
+        source:
+          $ref: "#/components/schemas/ConfigurationSource"
+        environment:
+          type: string
+        value:
+          description: Non-secret JSON value only; mutually exclusive with secretReference.
+        secretReference:
+          type: string
+          description: External secret-manager reference only; never submit or return the secret itself.
+        schema:
+          type: object
+          description: Expected value schema; validated before update.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+      oneOf:
+        - required: [value]
+          not:
+            required: [secretReference]
+        - required: [secretReference]
+          not:
+            required: [value]
+      additionalProperties: false
+    PutTenantConfigurationRequest:
+      allOf:
+        - $ref: "#/components/schemas/PutConfigurationRequest"
+        - type: object
+          properties:
+            scope:
+              enum: [tenant, module]
+    PutGlobalConfigurationRequest:
+      allOf:
+        - $ref: "#/components/schemas/PutConfigurationRequest"
+        - type: object
+          properties:
+            scope:
+              const: global
+    ConfigurationSetting:
+      type: object
+      required: [key, scope, source, version, secret, activation, updatedAt]
+      properties:
+        key:
+          type: string
+        scope:
+          $ref: "#/components/schemas/ConfigurationScope"
+        tenantId:
+          type: [string, "null"]
+        moduleId:
+          type: [string, "null"]
+        environment:
+          type: string
+        source:
+          $ref: "#/components/schemas/ConfigurationSource"
+        effective:
+          type: boolean
+        value:
+          description: Effective non-secret value. Omitted for secret settings.
+        secret:
+          type: boolean
+        secretReference:
+          type: string
+          description: Redacted external reference or stable version identifier, never secret material.
+        version:
+          type: integer
+          minimum: 1
+        activation:
+          type: string
+          enum: [applied, staged_for_restart, rejected]
+        updatedAt:
+          type: string
+          format: date-time
+      oneOf:
+        - properties:
+            secret:
+              const: false
+          required: [value]
+        - properties:
+            secret:
+              const: true
+            value:
+              not: {}
+          required: [secretReference]
+      additionalProperties: false
+    ConfigurationPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ConfigurationSetting"
+    StandardsVersion:
+      type: object
+      required: [version, releaseDate, enforcedForNewInstallations, createdAt, changes]
+      properties:
+        version:
+          type: string
+        releaseDate:
+          type: string
+          format: date
+        breakingChanges:
+          type: array
+          items:
+            type: string
+        changes:
+          type: array
+          items:
+            type: string
+        migrationGuide:
+          type: string
+          format: uri-reference
+        gracePeriodEndsAt:
+          type: [string, "null"]
+          format: date-time
+        graceAppliesTo:
+          type: string
+          const: modules_installed_before_release
+        enforcedForNewInstallations:
+          type: boolean
+          const: true
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+    PublishStandardsRequest:
+      type: object
+      required: [version, releaseDate, changes, enforcedForNewInstallations]
+      properties:
+        version:
+          type: string
+        releaseDate:
+          type: string
+          format: date
+        breakingChanges:
+          type: array
+          items:
+            type: string
+        changes:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        migrationGuide:
+          type: string
+          format: uri-reference
+        gracePeriodEndsAt:
+          type: [string, "null"]
+          format: date-time
+          description: Optional grace deadline for modules already installed at release time only.
+        enforcedForNewInstallations:
+          type: boolean
+          const: true
+      additionalProperties: false
+    StandardsVersionPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/StandardsVersion"
+    CreateComplianceReportRequest:
+      type: object
+      properties:
+        moduleIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+        standardsVersion:
+          type: string
+          description: Defaults to standards applicable to each module at assessment time.
+      additionalProperties: false
+    ComplianceViolation:
+      type: object
+      required: [ruleId, severity, description, enforcement, remediation]
+      properties:
+        ruleId:
+          type: string
+        severity:
+          type: string
+          enum: [info, warning, error, critical]
+        description:
+          type: string
+        enforcement:
+          type: string
+          enum: [enforced, grace_period, advisory]
+        gracePeriodEndsAt:
+          type: [string, "null"]
+          format: date-time
+        remediation:
+          type: string
+      additionalProperties: false
+    ComplianceReport:
+      type: object
+      required: [id, tenantId, moduleId, moduleVersion, declaredStandardsVersion, assessedStandardsVersion, status, violations, timestamp]
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: string
+        moduleId:
+          type: string
+        moduleVersion:
+          type: string
+        declaredStandardsVersion:
+          type: string
+        assessedStandardsVersion:
+          type: string
+        status:
+          type: string
+          enum: [compliant, grace_period, non_compliant, failed]
+        violations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ComplianceViolation"
+        timestamp:
+          type: string
+          format: date-time
+      additionalProperties: false
+    ComplianceReportPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ComplianceReport"
+    AuditRecord:
+      type: object
+      required: [id, occurredAt, action, actorType, outcome, correlationId, changes]
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: [string, "null"]
+        occurredAt:
+          type: string
+          format: date-time
+        actorType:
+          type: string
+          enum: [tenant_user, api_credential, platform_operator, system]
+        actorId:
+          type: [string, "null"]
+        action:
+          type: string
+        resourceType:
+          type: string
+        resourceId:
+          type: string
+        outcome:
+          type: string
+          enum: [succeeded, denied, failed]
+        reason:
+          type: string
+        correlationId:
+          type: string
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditChange"
+      additionalProperties: false
+    AuditChange:
+      type: object
+      required: [field, secret, redacted]
+      properties:
+        field:
+          type: string
+        secret:
+          type: boolean
+        before:
+          description: Before value for non-secret settings only.
+        after:
+          description: After value for non-secret settings only.
+        redacted:
+          type: boolean
+          description: True for secret changes; secret values are never included.
+        referenceVersion:
+          type: string
+          description: Optional non-secret external reference or version identifier.
+      oneOf:
+        - properties:
+            secret:
+              const: false
+            redacted:
+              const: false
+          required: [before, after]
+        - properties:
+            secret:
+              const: true
+            redacted:
+              const: true
+          not:
+            anyOf:
+              - required: [before]
+              - required: [after]
+      additionalProperties: false
+    AuditRecordPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/AuditRecord"
+    DocumentationSearchResult:
+      type: object
+      required: [title, slug, section, excerpt, score]
+      properties:
+        title:
+          type: string
+        slug:
+          type: string
+        section:
+          type: string
+        excerpt:
+          type: string
+        score:
+          type: number
+        updatedAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+    DocumentationSearchPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/DocumentationSearchResult"
+    DocumentationPage:
+      type: object
+      required: [title, slug, section, content, updatedAt]
+      properties:
+        title:
+          type: string
+        slug:
+          type: string
+        section:
+          type: string
+          enum: [architecture, api-reference, module-examples, troubleshooting, standards]
+        content:
+          type: string
+          description: Renderable documentation content; HTML must be sanitized by clients.
+        updatedAt:
+          type: string
+          format: date-time
+        standardsVersion:
+          type: string
+        relatedPages:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    TelemetryBatch:
+      type: object
+      required: [moduleId, records]
+      properties:
+        moduleId:
+          type: string
+          description: Must identify an installed module in the authenticated tenant.
+        records:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/TelemetryRecord"
+      additionalProperties: false
+    TelemetryRecord:
+      type: object
+      required: [kind, name, timestamp]
+      properties:
+        kind:
+          type: string
+          enum: [log, span, metric]
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+        timestamp:
+          type: string
+          format: date-time
+        severity:
+          type: string
+          enum: [trace, debug, info, warn, error, fatal]
+        value:
+          description: Metric value or other kind-specific scalar data.
+        traceId:
+          type: string
+        spanId:
+          type: string
+        attributes:
+          type: object
+          description: Bounded, non-secret and non-sensitive operational attributes only.
+          additionalProperties:
+            type: [string, number, boolean]
+      additionalProperties: false
+    TelemetryAcceptance:
+      type: object
+      required: [accepted, acceptedAt]
+      properties:
+        accepted:
+          type: integer
+          minimum: 0
+        acceptedAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+    Page:
+      type: object
+      properties:
+        nextPageToken:
+          type: [string, "null"]
+        totalSize:
+          type: integer
+          minimum: 0

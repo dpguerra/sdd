@@ -1,0 +1,362 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:platform-core:module-api-declarations:v1",
+  "title": "Module API Declarations",
+  "description": "Optional API-declaration portion of a module manifest. It describes module-owned synchronous API contracts and requested governed publication metadata; it is not the API business contract, Gateway configuration, publication approval, or pre-exposure gate evidence.",
+  "type": "object",
+  "properties": {
+    "apis": {
+      "type": "array",
+      "description": "Externally consumable synchronous APIs owned by this module. Omit this property, or use an empty array, when the module exposes no such API.",
+      "items": {
+        "$ref": "#/$defs/api"
+      }
+    },
+    "operationalEndpoints": {
+      "type": "array",
+      "description": "Non-business health, readiness, or liveness operations exposed by this module, if any. Identify operations by their canonical contract operationId, not by a physical route.",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "operationId",
+          "contractReference"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "health",
+              "readiness",
+              "liveness"
+            ]
+          },
+          "operationId": {
+            "$ref": "#/$defs/operationId"
+          },
+          "contractReference": {
+            "$ref": "#/$defs/contractReference"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "outboundRequirements": {
+      "type": "array",
+      "description": "Optional capability-oriented outbound requirements of this module; these describe logical provider capabilities, not provider products or SDKs.",
+      "items": {
+        "$ref": "#/$defs/outboundRequirement"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "operationId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable operationId declared by the referenced canonical API contract."
+    },
+    "contractReference": {
+      "type": "string",
+      "format": "uri-reference",
+      "minLength": 1,
+      "description": "Reference to a canonical, module-owned machine-readable contract."
+    },
+    "api": {
+      "type": "object",
+      "required": [
+        "contract",
+        "operations",
+        "compatibility",
+        "authentication",
+        "authorization",
+        "tenant",
+        "observability",
+        "publication"
+      ],
+      "properties": {
+        "contract": {
+          "type": "object",
+          "required": [
+            "reference",
+            "version"
+          ],
+          "properties": {
+            "reference": {
+              "$ref": "#/$defs/contractReference"
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Version of the referenced canonical API contract."
+            }
+          },
+          "additionalProperties": false
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Operations from this contract that are eligible for external publication.",
+          "items": {
+            "$ref": "#/$defs/operationId"
+          }
+        },
+        "compatibility": {
+          "type": "object",
+          "required": [
+            "policy",
+            "supportedVersions"
+          ],
+          "properties": {
+            "policy": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Module-defined compatibility policy for this API."
+            },
+            "supportedVersions": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "compatibleWith": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "authentication": {
+          "type": "object",
+          "required": [
+            "required"
+          ],
+          "properties": {
+            "required": {
+              "type": "boolean"
+            },
+            "mechanisms": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Contract-defined authentication mechanisms, when applicable."
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "required": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "required"
+                ]
+              },
+              "then": {
+                "required": [
+                  "mechanisms"
+                ],
+                "properties": {
+                  "mechanisms": {
+                    "minItems": 1
+                  }
+                }
+              }
+            }
+          ],
+          "additionalProperties": false
+        },
+        "authorization": {
+          "type": "object",
+          "required": [
+            "required"
+          ],
+          "properties": {
+            "required": {
+              "type": "boolean"
+            },
+            "requirements": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Contract-defined authorization requirements, such as permissions or policy references."
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "required": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "required"
+                ]
+              },
+              "then": {
+                "required": [
+                  "requirements"
+                ],
+                "properties": {
+                  "requirements": {
+                    "minItems": 1
+                  }
+                }
+              }
+            }
+          ],
+          "additionalProperties": false
+        },
+        "tenant": {
+          "type": "object",
+          "required": [
+            "scope"
+          ],
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": [
+                "tenant",
+                "platform",
+                "optional",
+                "none"
+              ],
+              "description": "Tenant-context applicability for this API; application authorization remains authoritative."
+            },
+            "contextRequirement": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Contract-defined tenant-context validation requirement, when applicable."
+            }
+          },
+          "additionalProperties": false
+        },
+        "observability": {
+          "type": "object",
+          "required": [
+            "correlationId",
+            "traceContext"
+          ],
+          "properties": {
+            "correlationId": {
+              "type": "boolean",
+              "description": "Whether correlation context is required and propagated by the contract."
+            },
+            "traceContext": {
+              "type": "boolean",
+              "description": "Whether trace context is required and propagated by the contract."
+            },
+            "accessLogging": {
+              "type": "boolean"
+            },
+            "trafficMetrics": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "publication": {
+          "type": "object",
+          "required": [
+            "exposure"
+          ],
+          "properties": {
+            "exposure": {
+              "type": "string",
+              "enum": [
+                "external",
+                "partner",
+                "tenant-scoped"
+              ],
+              "description": "Abstract requested audience for governed external publication; this declaration does not approve exposure or satisfy pre-exposure gates."
+            },
+            "audiences": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "versionExposure": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Contract versions requested for governed exposure, subject to platform policy."
+            },
+            "policyReferences": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/contractReference"
+              },
+              "description": "Optional references to platform-governed publication or traffic policies; current gate evidence is evaluated independently before exposure."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "outboundRequirement": {
+      "type": "object",
+      "required": [
+        "capability",
+        "required"
+      ],
+      "properties": {
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Logical capability required by the module, not a vendor or transport name."
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "providerRequirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "capability"
+            ],
+            "properties": {
+              "capability": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Logical provider capability expected from an infrastructure adapter."
+              },
+              "contractReference": {
+                "$ref": "#/$defs/contractReference"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

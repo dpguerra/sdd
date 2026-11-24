@@ -1,0 +1,88 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: urn:platform-core:integration-event:v1
+title: Platform Core Integration Event
+description: |
+  Versioned asynchronous integration-event envelope for the Platform Core
+  Foundation. This contract is separate from the synchronous OpenAPI DTOs.
+  The broker provides at-least-once delivery; event_id is the stable
+  deduplication identity and consumers must make local effects idempotent.
+  Tenant context is mandatory for tenant events and must be revalidated by
+  publishers, brokers, consumers, and subscription routing.
+type: object
+required:
+  - event_id
+  - aggregate_id
+  - tenant_id
+  - timestamp
+  - event_type
+  - schema_version
+  - source_module
+  - data
+  - metadata
+properties:
+  event_id:
+    type: string
+    format: uuid
+    description: Stable event identity reused on every retry and authorized replay.
+  aggregate_id:
+    type: string
+    minLength: 1
+  tenant_id:
+    type: string
+    minLength: 1
+    description: Resolved tenant identity; must match the authenticated publisher and subscription tenant.
+  timestamp:
+    type: string
+    format: date-time
+  event_type:
+    type: string
+    pattern: "^[a-z][a-z0-9_-]*(\\.[A-Z][A-Za-z0-9]*)+$"
+    description: Globally unique namespace-qualified event name, such as platform.TenantCreated.
+  schema_version:
+    type: string
+    minLength: 1
+    description: Independently versioned event schema version.
+  source_module:
+    type: string
+    minLength: 1
+    description: Registered platform or approved module identifier.
+  data:
+    type: object
+    description: Minimal event facts and reference identifiers; do not include full entities, credentials, or secret values.
+    additionalProperties: true
+  metadata:
+    type: object
+    required: [correlation_id]
+    properties:
+      correlation_id:
+        type: string
+        minLength: 1
+        maxLength: 128
+      traceparent:
+        type: string
+        description: W3C Trace Context traceparent, when available.
+      causation_id:
+        type: string
+      idempotency_key:
+        type: string
+      content_type:
+        type: string
+    additionalProperties: true
+  occurred_at:
+    type: string
+    format: date-time
+    description: Optional domain occurrence time; timestamp remains the envelope creation time.
+unevaluatedProperties: false
+examples:
+  - event_id: 38ad7f3e-8342-4c54-9e8d-22ce532d2112
+    aggregate_id: tenant_01HXYZ
+    tenant_id: tenant_01HXYZ
+    timestamp: "2026-11-22T18:00:00Z"
+    event_type: platform.TenantCreated
+    schema_version: "1.0.0"
+    source_module: platform.tenant
+    data:
+      tenant_id: tenant_01HXYZ
+      name: Example Organization
+    metadata:
+      correlation_id: req-01HXYZ
